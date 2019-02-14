@@ -29,7 +29,7 @@ DBSCAN_ESP = 2  # Radius that our DBSCAN considers for a cluster
 DBSCAN_MIN_SAMPLES = 6  # minimum number of points our DBSCAN needs in a radius to consider something a cluster
 MEAN_SHIFT_QUANTILE = 0.3  # [0,1] the multiplier of pairwise distances, a greater quantile means less clusters
 
-PLOT_EN = False
+PLOT_EN = True
 PRINT_DATA_EN = False
 CLUSTERING_ALGORITHMS = ['DBSCAN', 'MEAN_SHIFT']
 CLASSIFIER_TYPES = ['LEAST_SQUARES', 'SVM', 'MLP']
@@ -217,13 +217,15 @@ def calculate_covariance_matrix(activePoints):
 
 
 def analyze_data(filenames):
+    """
+    TODO Add function description
+    """
     dataSet = list()
     backMeans = np.zeros((len(filenames),NUM_ROWS,NUM_COLS))
     backStdevs = np.zeros((len(filenames),NUM_ROWS,NUM_COLS))
-    for file, k in zip(filenames, range(len(filenames))):
-
+    for k, file in enumerate(filenames):
         dataSet.append(np.load(file))
-        data = dataSet[k]
+        data = dataSet[-1]
         #data here is 1 frame now, problem
         calc_data_baseline(data, backMeans, backStdevs)
 
@@ -231,8 +233,6 @@ def analyze_data(filenames):
         frameCount = dataSize[0]  # check how many frames exist in this data sample
         original_data = remove_background(data, frameCount, backMeans[k], backStdevs[k], NOISE_SIGMA)
         featureSet = list()
-
-
 
         # Now that background is moved, lets make cluster, compute DBSCAN for each frame!
         validFrameCount = 0
@@ -257,6 +257,15 @@ def analyze_data(filenames):
                     features = create_features_DBSCAN(activeInFrame, original_data[frame, :, :], db, clusterCenters)
                     covarEigenvalues = np.linalg.eig(features[2])
                     flat_eig =  [item for sublist in covarEigenvalues for item in sublist]
+                    # TODO: First element of covarEigenvalues is the eigenvalues, this will tell you approximate foot
+                    # dimensions (length, width). The second element is eigenvectors, which explain the direction that
+                    # the foot is pointing. Find the max absolute value of the eigenvalues for each cluster, determine
+                    # the associated eigenvector. If the eigenvalue was negative, rotate eigenvector by 180 deg. Compare
+                    # angle between the two eigenvectors and use this as a feature (pidgeon-toed-ness)
+
+                    # TODO: For eigenvalues, average to determine approximate foot size. Or if you're worried about
+                    # subject being completely on mat or not, take max eigenvalue for each direction or just the overall
+                    # max.
                     #print("flat_eig 2: " + str(len(flat_eig[2][0])))
                     #flat_eig[2][0][0], flat_eig[2][0][1], flat_eig[2][1][0], flat_eig[2][1][1], flat_eig[3][0][0], flat_eig[3][0][1], flat_eig[3][1][0], flat_eig[3][1][1],
                     featureSet.append([features[0], features[1], flat_eig[0][0], flat_eig[0][1], flat_eig[1][0],
