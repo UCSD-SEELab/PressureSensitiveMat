@@ -182,42 +182,42 @@ class ADS1x15(object):
 
     def send_read_request_0(self):
         """Sends a command to the adc to read a voltage, does not return the value"""
-        presend = time.time()
+        #presend = time.time()
         self._device.writeList(ADS1x15_POINTER_CONFIG, [(self.UNIVERSAL_CONFIG_0 >> 8) & 0xFF, self.UNIVERSAL_CONFIG_0 & 0xFF])
-        postsend = time.time()
+        #postsend = time.time()
         #print("Send request time: %d" % (postsend - presend)) 
         return
 
     def send_read_request_1(self):
         """Sends a command to the adc to read a voltage, does not return the value"""
-        presend = time.time()
+        #presend = time.time()
         self._device.writeList(ADS1x15_POINTER_CONFIG, [(self.UNIVERSAL_CONFIG_1 >> 8) & 0xFF, self.UNIVERSAL_CONFIG_1 & 0xFF])
-        postsend = time.time()
+        #postsend = time.time()
         #print("Send request time: %d" % (postsend - presend)) 
         return
         
     def send_read_request_2(self):
         """Sends a command to the adc to read a voltage, does not return the value"""
-        presend = time.time()
+        #presend = time.time()
         self._device.writeList(ADS1x15_POINTER_CONFIG, [(self.UNIVERSAL_CONFIG_2 >> 8) & 0xFF, self.UNIVERSAL_CONFIG_2 & 0xFF])
-        postsend = time.time()
-        #print("Send request time: %d" % (postsend - presend)) 
+        #postsend = time.time()
+        #print("Send request time: %f" % (postsend - presend)) 
         return
     
     def send_read_request_3(self):
         """Sends a command to the adc to read a voltage, does not return the value"""
-        presend = time.time()
+        #presend = time.time()
         self._device.writeList(ADS1x15_POINTER_CONFIG, [(self.UNIVERSAL_CONFIG_3 >> 8) & 0xFF, self.UNIVERSAL_CONFIG_3 & 0xFF])
-        postsend = time.time()
-        #print("Send request time: %d" % (postsend - presend)) 
+        #postsend = time.time()
+        #print("Send request time: %0.3f" % (1000 * (postsend - presend))) 
         return
 
     def retrieve_read(self):
         """Grab the result in the adc's register of conversions"""
-        preretrieve = time.time()
+        #preretrieve = time.time()
         result = self._device.readList(ADS1x15_POINTER_CONVERSION, 2)
-        postretrieve = time.time()
-        #print("get request time: %d" % (postretrieve - preretrieve))
+        #postretrieve = time.time()
+        #print("get request time: %0.3f" %(1000 * (postretrieve - preretrieve)))
         return self._conversion_value(result[1], result[0])
 
     def _read(self, mux, gain, data_rate, mode):
