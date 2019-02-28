@@ -3,6 +3,7 @@ import random
 
 import numpy as np
 # import DBSCAN
+import sklearn
 from sklearn.cluster import DBSCAN, MeanShift, estimate_bandwidth
 from sklearn import metrics
 from sklearn import svm
@@ -13,7 +14,7 @@ import time
 import seaborn as sns
 import sys
 from sklearn.preprocessing import scale
-sys.path.append('./libs/')
+sys.path.append('../')
 from libs.MeanShift_py import mean_shift as gaussian_mean_shift
 from libs.LeastSquares import ls_classifier as LLS
 
@@ -266,7 +267,7 @@ def analyze_data(filenames):
                     # TODO: For eigenvalues, average to determine approximate foot size. Or if you're worried about
                     # subject being completely on mat or not, take max eigenvalue for each direction or just the overall
                     # max.
-                        w, v = np.linalg.eig(features[2])
+                    w, v = np.linalg.eig(features[2])
                     #print("w: " + str(w))
                     #print()
                     #print("v: " + str(v))
