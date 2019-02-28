@@ -2,6 +2,7 @@
 import random
 
 import numpy as np
+import matplotlib.pyplot as plt
 # import DBSCAN
 import sklearn
 from sklearn.cluster import DBSCAN, MeanShift, estimate_bandwidth
@@ -30,7 +31,7 @@ DBSCAN_ESP = 2  # Radius that our DBSCAN considers for a cluster
 DBSCAN_MIN_SAMPLES = 6  # minimum number of points our DBSCAN needs in a radius to consider something a cluster
 MEAN_SHIFT_QUANTILE = 0.3  # [0,1] the multiplier of pairwise distances, a greater quantile means less clusters
 
-PLOT_EN = True
+PLOT_EN = False
 PRINT_DATA_EN = False
 CLUSTERING_ALGORITHMS = ['DBSCAN', 'MEAN_SHIFT']
 CLASSIFIER_TYPES = ['LEAST_SQUARES', 'SVM', 'MLP', 'NEAREST_CENTROID']
@@ -275,14 +276,14 @@ def analyze_data(filenames):
                     foot_angle = angle_between(v[0][0], v[1][0])
                     #print("flat_eig 2: " + str(len(flat_eig[2][0])))
                     #flat_eig[2][0][0], flat_eig[2][0][1], flat_eig[2][1][0], flat_eig[2][1][1], flat_eig[3][0][0], flat_eig[3][0][1], flat_eig[3][1][0], flat_eig[3][1][1],
-                    featureSet.append([features[0], features[1], flat_eig[0][0], flat_eig[0][1], flat_eig[1][0],
-                                       flat_eig[1][1], flat_eig[2][0][0], flat_eig[2][0][1], flat_eig[2][1][0],
-                                       flat_eig[2][1][1], flat_eig[3][0][0], flat_eig[3][0][1], flat_eig[3][1][0],
-                                       flat_eig[3][1][1], k])
-                    #leftMaxEig = max((flat_eig[0][0]), abs(flat_eig[0][0]))
-                    #rightMaxEig = max((flat_eig[1][0]), abs(flat_eig[1][0]))
                     #featureSet.append([features[0], features[1], flat_eig[0][0], flat_eig[0][1], flat_eig[1][0],
-                    #                   flat_eig[1][1], foot_angle, k])
+                    #                   flat_eig[1][1], flat_eig[2][0][0], flat_eig[2][0][1], flat_eig[2][1][0],
+                    #                   flat_eig[2][1][1], flat_eig[3][0][0], flat_eig[3][0][1], flat_eig[3][1][0],
+                    #                   flat_eig[3][1][1], k])
+                    leftMaxEig = max((flat_eig[0][0]), abs(flat_eig[0][0]))
+                    rightMaxEig = max((flat_eig[1][0]), abs(flat_eig[1][0]))
+                    featureSet.append([features[0], features[1], flat_eig[0][0], flat_eig[0][1], flat_eig[1][0],
+                                       flat_eig[1][1], foot_angle, k])
                     #this is 15 features including the label
                     #print(k)
                     #print(featureSet[k])
@@ -439,6 +440,7 @@ def analyze_data(filenames):
                     plt.clf()
 
         dataFeatures.append(featureSet)
+        np.save('temp_features.npy', dataFeatures)
 
 def angle_between(v1, v2):
     """ Returns the angle in radians between vectors 'v1' and 'v2'::
@@ -457,39 +459,18 @@ def create_classifier(classifierType, train_ratio):
     #PREP THIS DATA
     #shuffle the valid features to make them randomly selected
     dataHistogram = list()
-    import matplotlib.pyplot as plt
+
+    npDataFeatures = np.concatenate(dataFeatures, axis=0)
+
+    #create a mask for class 0's
+    class_0_mask = npDataFeatures[:, -1] == 0
+    #print(npDataFeatures[0, :, 0])
+    #print(npDataFeatures[0, :, 0])
+
+    """
     bins = np.linspace(0, 20, 50)
     plt.subplot(7, 2, 1)
     plt.style.use('seaborn-deep')
-    x = len(dataFeatures)
-    y = len(dataFeatures[0])
-    z = len(dataFeatures[0][0])
-    npDataFeatures = np.zeros([x * y, z])
-    for i in range(x):
-        for j in range(len(dataFeatures[i])):
-            for k in range(len(dataFeatures[i][j])):
-                #print('x ' + str(i) + ' y ' + str(j) + ' z ' + str(k))
-                #print ('xlen ' + str(len(dataFeatures)) + ' ylen ' + str(len(dataFeatures[j])) + ' zlen ' + str(len(dataFeatures[j][k])))
-                npDataFeatures[(i * len(dataFeatures[i])) + j, k] = dataFeatures[i][j][k]
-    #delete zerod rows that somehow show up
-    zerod_rows = list()
-    for i in range(npDataFeatures.shape[0]):
-        if npDataFeatures[i][0] == 0.0:
-            zerod_rows.append(i)
-    print(zerod_rows)
-    npDataFeatures = np.delete(npDataFeatures, (zerod_rows), axis=0)
-
-    #create a mask for class 0's
-    class_0_mask = np.zeros(npDataFeatures.shape[0], dtype=bool)
-    class_0_indices = list()
-    for i in range(npDataFeatures.shape[0]):
-        if npDataFeatures[i, 14] == 0:
-            class_0_indices.append(i)
-    class_0_mask[class_0_indices] = True
-
-    #print(npDataFeatures[0, :, 0])
-    #print(npDataFeatures[0, :, 0])
-
     bins = np.linspace(0, 150000, 50)
     plt.hist(npDataFeatures[class_0_mask, 0], 50, label='0')
     plt.hist(npDataFeatures[~class_0_mask, 0], 50, label='1')
@@ -517,7 +498,6 @@ def create_classifier(classifierType, train_ratio):
     plt.hist(npDataFeatures[~class_0_mask, 4], 50,  label='1')
     plt.title('feat 4')
 
-
     plt.subplot(7, 2, 6)
     plt.hist(npDataFeatures[class_0_mask, 5], 50, label='0')
     plt.hist(npDataFeatures[~class_0_mask, 5], 50,  label='1')
@@ -527,6 +507,7 @@ def create_classifier(classifierType, train_ratio):
     plt.hist(npDataFeatures[class_0_mask, 6], 50,  label='0')
     plt.hist(npDataFeatures[~class_0_mask, 6], 50, label='1')
     plt.title('feat 6')
+    """
     """
     plt.subplot(7, 2, 8)
     plt.hist(npDataFeatures[class_0_mask, 7], label='0')
@@ -566,7 +547,9 @@ def create_classifier(classifierType, train_ratio):
 
     plt.legend(loc='upper right')
     """
+    """
     plt.show()
+    """
 
     feature_train_mask = np.zeros(npDataFeatures.shape[0], dtype=bool)
     feature_train_indices = random.sample(range(0, npDataFeatures.shape[0]), int(train_ratio * npDataFeatures.shape[0]))
@@ -594,47 +577,44 @@ def create_classifier(classifierType, train_ratio):
     #LEAST SQUARES
     if classifierType == CLASSIFIER_TYPES[0]:
         #Least squares model
-        sklearn.preprocessing.normalize(allTrainFeats)
-        sklearn.preprocessing.normalize(allTestFeats)
-        model = LLS.train(allTrainFeats[:, :7], allTrainFeats[:, 14])
+        #sklearn.preprocessing.normalize(allTrainFeats)
+        #sklearn.preprocessing.normalize(allTestFeats)
+        model = LLS.train(allTrainFeats[:, :-1], allTrainFeats[:, -1])
         #yTrain = LLS.one_hot(allTrainFeats[:, 14])
         #yTest = LLS.one_hot(allTestFeats[:, 14])
 
-        predLabelsTrain = LLS.predict(model, allTrainFeats[:, :7])
-        predLabelsTest = LLS.predict(model, allTestFeats[:, :7])
+        predLabelsTrain = LLS.predict(model, allTrainFeats[:, :-1])
+        predLabelsTest = LLS.predict(model, allTestFeats[:, :-1])
 
         print("Least Squares Classifier training")
-        print("Train accuracy: {0}".format(metrics.accuracy_score(allTrainFeats[:, 14], predLabelsTrain)))
-        print("Test accuracy: {0}".format(metrics.accuracy_score(allTestFeats[:, 14], predLabelsTest)))
+        print("Train accuracy: {0:0.4f}".format(metrics.accuracy_score(allTrainFeats[:, -1], predLabelsTrain)))
+        print("Test accuracy: {0:0.4f}\n".format(metrics.accuracy_score(allTestFeats[:, -1], predLabelsTest)))
 
     #SVM
     elif classifierType == CLASSIFIER_TYPES[1]:
         #SVC model
-        sklearn.preprocessing.normalize(allTrainFeats, axis=0)
-        sklearn.preprocessing.normalize(allTestFeats, axis=0)
-        print("hi")
-        model = svm.SVC(kernel='linear', gamma='scale', C=0.3)
-        model.fit(allTrainFeats[:, :5], allTrainFeats[:, 14])
-        print("hello")
-        predLabelsTest = model.predict(allTestFeats[:, :5])
         print("SVM Training")
-        print("Test accuracy: {0}".format(metrics.accuracy_score(allTestFeats[:, 14], predLabelsTest)))
+        normalizer = sklearn.preprocessing.MinMaxScaler().fit(allTrainFeats[:,:-1])
+        model = svm.LinearSVC()
+        model.fit(normalizer.transform(allTrainFeats[:, :-1]), allTrainFeats[:, -1])
+        print('Train accuracy: {0:0.4f}'.format(model.score(normalizer.transform(allTrainFeats[:, :-1]), allTrainFeats[:, -1])))
+        print('Test accuracy: {0:0.4f}\n'.format(model.score(normalizer.transform(allTestFeats[:, :-1]), allTestFeats[:, -1])))
 
     #MLP
     elif classifierType == CLASSIFIER_TYPES[2]:
         # MLP Neural Network model
-        sklearn.preprocessing.normalize(allTrainFeats, axis=0)
-        sklearn.preprocessing.normalize(allTestFeats, axis=0)
-        print("Multi Layer Perceptron Training")
-        model = MLPClassifier(hidden_layer_sizes=(200,), activation='tanh', max_iter=40, alpha=1e-6,
-                              solver='adam', verbose=10, tol=1e-4, random_state=1,
-                              learning_rate_init=.1, learning_rate='invscaling', shuffle=True)
-        model.fit(allTrainFeats[:, 1:4], allTrainFeats[:, 7])
-        print("MLP Test set score: %f" % model.score(allTestFeats[:, 1:4], allTestFeats[:, 7]))
+        print('Multi Layer Perceptron Training')
+        normalizer = sklearn.preprocessing.MinMaxScaler().fit(allTrainFeats[:,:-1])
+        model = MLPClassifier(hidden_layer_sizes=(100, 2), activation='relu', max_iter=5000, alpha=1e-4,
+                              solver='adam', verbose=0, tol=1e-6,
+                              learning_rate_init=0.001, shuffle=True)
+        model.fit(normalizer.transform(allTrainFeats[:, :-1]), allTrainFeats[:, -1])
+        print('Train accuracy: {0:0.4f}'.format(model.score(normalizer.transform(allTrainFeats[:, :-1]), allTrainFeats[:, -1])))
+        print('Test accuracy: {0:0.4f}\n'.format(model.score(normalizer.transform(allTestFeats[:, :-1]), allTestFeats[:, -1])))
 
     elif classifierType == CLASSIFIER_TYPES[3]:
         from sklearn.neighbors import NearestNeighbors
-        #sklearn.preprocessing.normalize(allTrainFeats, axis=0)
+        allTrainFeats = sklearn.preprocessing.normalize(allTrainFeats, axis=0)
         #sklearn.preprocessing.normalize(allTestFeats, axis=0)
         model = NearestNeighbors()
         model.fit(allTrainFeats[:, :7], allTrainFeats[:, 14])
@@ -650,4 +630,7 @@ def create_classifier(classifierType, train_ratio):
 
 if __name__ == '__main__':
     analyze_data(FILES)
-    create_classifier(CLASSIFIER_TYPES[0], 0.9)
+    # dataFeatures = np.load('temp_features.npy')
+    create_classifier(CLASSIFIER_TYPES[0], 0.8)
+    create_classifier(CLASSIFIER_TYPES[1], 0.8)
+    create_classifier(CLASSIFIER_TYPES[2], 0.8)
