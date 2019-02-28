@@ -32,7 +32,7 @@ MEAN_SHIFT_QUANTILE = 0.3  # [0,1] the multiplier of pairwise distances, a great
 PLOT_EN = True
 PRINT_DATA_EN = False
 CLUSTERING_ALGORITHMS = ['DBSCAN', 'MEAN_SHIFT']
-CLASSIFIER_TYPES = ['LEAST_SQUARES', 'SVM', 'MLP']
+CLASSIFIER_TYPES = ['LEAST_SQUARES', 'SVM', 'MLP', 'NEAREST_CENTROID']
 CLUSTERING_ALG = CLUSTERING_ALGORITHMS[0]
 GAUSSIAN_KERNEL = False
 WEIGHTED_CLUSTER = True
@@ -266,12 +266,22 @@ def analyze_data(filenames):
                     # TODO: For eigenvalues, average to determine approximate foot size. Or if you're worried about
                     # subject being completely on mat or not, take max eigenvalue for each direction or just the overall
                     # max.
+                        w, v = np.linalg.eig(features[2])
+                    #print("w: " + str(w))
+                    #print()
+                    #print("v: " + str(v))
+                    #print()
+                    foot_angle = angle_between(v[0][0], v[1][0])
                     #print("flat_eig 2: " + str(len(flat_eig[2][0])))
                     #flat_eig[2][0][0], flat_eig[2][0][1], flat_eig[2][1][0], flat_eig[2][1][1], flat_eig[3][0][0], flat_eig[3][0][1], flat_eig[3][1][0], flat_eig[3][1][1],
                     featureSet.append([features[0], features[1], flat_eig[0][0], flat_eig[0][1], flat_eig[1][0],
                                        flat_eig[1][1], flat_eig[2][0][0], flat_eig[2][0][1], flat_eig[2][1][0],
                                        flat_eig[2][1][1], flat_eig[3][0][0], flat_eig[3][0][1], flat_eig[3][1][0],
                                        flat_eig[3][1][1], k])
+                    #leftMaxEig = max((flat_eig[0][0]), abs(flat_eig[0][0]))
+                    #rightMaxEig = max((flat_eig[1][0]), abs(flat_eig[1][0]))
+                    #featureSet.append([features[0], features[1], flat_eig[0][0], flat_eig[0][1], flat_eig[1][0],
+                    #                   flat_eig[1][1], foot_angle, k])
                     #this is 15 features including the label
                     #print(k)
                     #print(featureSet[k])
@@ -434,33 +444,152 @@ def analyze_data(filenames):
 def create_classifier(classifierType, train_ratio):
     #PREP THIS DATA
     #shuffle the valid features to make them randomly selected
-    for i in range(len(dataFeatures)):
-        random.shuffle(dataFeatures[i])
+    dataHistogram = list()
+    import matplotlib.pyplot as plt
+    bins = np.linspace(0, 20, 50)
+    plt.subplot(7, 2, 1)
+    plt.style.use('seaborn-deep')
+    x = len(dataFeatures)
+    y = len(dataFeatures[0])
+    z = len(dataFeatures[0][0])
+    npDataFeatures = np.zeros([x * y, z])
+    for i in range(x):
+        for j in range(len(dataFeatures[i])):
+            for k in range(len(dataFeatures[i][j])):
+                #print('x ' + str(i) + ' y ' + str(j) + ' z ' + str(k))
+                #print ('xlen ' + str(len(dataFeatures)) + ' ylen ' + str(len(dataFeatures[j])) + ' zlen ' + str(len(dataFeatures[j][k])))
+                npDataFeatures[(i * len(dataFeatures[i])) + j, k] = dataFeatures[i][j][k]
+    #delete zerod rows that somehow show up
+    zerod_rows = list()
+    for i in range(npDataFeatures.shape[0]):
+        if npDataFeatures[i][0] == 0.0:
+            zerod_rows.append(i)
+    print(zerod_rows)
+    npDataFeatures = np.delete(npDataFeatures, (zerod_rows), axis=0)
+
+    #create a mask for class 0's
+    class_0_mask = np.zeros(npDataFeatures.shape[0], dtype=bool)
+    class_0_indices = list()
+    for i in range(npDataFeatures.shape[0]):
+        if npDataFeatures[i, 14] == 0:
+            class_0_indices.append(i)
+    class_0_mask[class_0_indices] = True
+
+    #print(npDataFeatures[0, :, 0])
+    #print(npDataFeatures[0, :, 0])
+
+    bins = np.linspace(0, 150000, 50)
+    plt.hist(npDataFeatures[class_0_mask, 0], 50, label='0')
+    plt.hist(npDataFeatures[~class_0_mask, 0], 50, label='1')
+    plt.title('feat 0')
+
+    plt.subplot(7, 2, 2)
+    bins = np.linspace(0, 20, 50)
+    plt.hist(npDataFeatures[class_0_mask, 1], 50, label='0')
+    plt.hist(npDataFeatures[~class_0_mask, 1], 50, label='1')
+    plt.title('feat 1')
+
+    plt.subplot(7, 2, 3)
+    bins = np.linspace(0, 12, 50)
+    plt.hist(npDataFeatures[class_0_mask, 2], 50, label='0')
+    plt.hist(npDataFeatures[~class_0_mask, 2], 50, label='1')
+    plt.title('feat 2')
+
+    plt.subplot(7, 2, 4)
+    plt.hist(npDataFeatures[class_0_mask, 3], 50, label='0')
+    plt.hist(npDataFeatures[~class_0_mask, 3], 50, label='1')
+    plt.title('feat 3')
+
+    plt.subplot(7, 2, 5)
+    plt.hist(npDataFeatures[class_0_mask, 4], 50, label='0')
+    plt.hist(npDataFeatures[~class_0_mask, 4], 50,  label='1')
+    plt.title('feat 4')
+
+
+    plt.subplot(7, 2, 6)
+    plt.hist(npDataFeatures[class_0_mask, 5], 50, label='0')
+    plt.hist(npDataFeatures[~class_0_mask, 5], 50,  label='1')
+    plt.title('feat 5')
+
+    plt.subplot(7, 2, 7)
+    plt.hist(npDataFeatures[class_0_mask, 6], 50,  label='0')
+    plt.hist(npDataFeatures[~class_0_mask, 6], 50, label='1')
+    plt.title('feat 6')
+    """
+    plt.subplot(7, 2, 8)
+    plt.hist(npDataFeatures[class_0_mask, 7], label='0')
+    plt.hist(npDataFeatures[~class_0_mask, 7], label='1')
+    plt.title('feat 7')
+
+    plt.subplot(7, 2, 9)
+    plt.hist(npDataFeatures[class_0_mask, 8], label='0')
+    plt.hist(npDataFeatures[~class_0_mask, 8], label='1')
+    plt.title('feat 8')
+
+    plt.subplot(7, 2, 10)
+    plt.hist(npDataFeatures[class_0_mask, 9], label='0')
+    plt.hist(npDataFeatures[~class_0_mask, 9], label='1')
+    plt.title('feat 9')
+
+    plt.subplot(7, 2, 11)
+    plt.hist(npDataFeatures[class_0_mask, 10], label='0')
+    plt.hist(npDataFeatures[~class_0_mask, 10], label='1')
+    plt.title('feat 10')
+
+    plt.subplot(7, 2, 12)
+    plt.hist(npDataFeatures[class_0_mask, 11], label='0')
+    plt.hist(npDataFeatures[~class_0_mask, 11], label='1')
+    plt.title('feat 11')
+
+    plt.subplot(7, 2, 13)
+    plt.hist(npDataFeatures[class_0_mask, 12], label='0')
+    plt.hist(npDataFeatures[~class_0_mask, 12], label='1')
+    plt.title('feat 12')
+
+    plt.subplot(7, 2, 14)
+    plt.hist(npDataFeatures[class_0_mask, 13], label='0')
+    plt.hist(npDataFeatures[~class_0_mask, 13], label='1')
+    plt.title('feat 13')
+
+
+    plt.legend(loc='upper right')
+    """
+    plt.show()
+
+    feature_train_mask = np.zeros(npDataFeatures.shape[0], dtype=bool)
+    feature_train_indices = random.sample(range(0, npDataFeatures.shape[0]), int(train_ratio * npDataFeatures.shape[0]))
+    feature_train_mask[feature_train_indices] = True
+
+    #for i in range(len(dataFeatures)):
+    #    random.shuffle(dataFeatures[i])
     #select the first train_ratio in percentage form
-    numTrainFeats = np.zeros(len(dataFeatures))
-    trainFeats = list()
-    testFeats = list()
-    for i in range(len(dataFeatures)):
-        numTrainFeats[i] = int(train_ratio * len(dataFeatures[i]))
+    #numTrainFeats = np.zeros(len(dataFeatures))
+    #trainFeats = list()
+    #testFeats = list()
+    #for i in range(len(dataFeatures)):
+    #    numTrainFeats[i] = int(train_ratio * len(dataFeatures[i]))
         #select our training features
-        npDataFeatures = np.array(dataFeatures[i])
-        trainFeats.append(npDataFeatures[:int(numTrainFeats[i]), :])
-        testFeats.append(npDataFeatures[int(numTrainFeats[i])+1:, :])
+    #    npDataFeatures = np.array(dataFeatures[i])
+    #    trainFeats.append(npDataFeatures[:int(numTrainFeats[i]), :])
+    #    testFeats.append(npDataFeatures[int(numTrainFeats[i])+1:, :])
     #combine all the training features into one
 
     #TODO should generalize this
-    allTrainFeats = np.concatenate((np.array(trainFeats[0]), np.array(trainFeats[1])))
-    allTestFeats = np.concatenate((np.array(testFeats[0]), np.array(testFeats[1])))
-
+    #allTrainFeats = np.concatenate((np.array(trainFeats[0]), np.array(trainFeats[1])))
+    allTrainFeats = npDataFeatures[feature_train_mask]
+    #allTestFeats = np.concatenate((np.array(testFeats[0]), np.array(testFeats[1])))
+    allTestFeats = npDataFeatures[~feature_train_mask]
     #LEAST SQUARES
     if classifierType == CLASSIFIER_TYPES[0]:
         #Least squares model
-        model = LLS.train(allTrainFeats[:, :13], allTrainFeats[:, 14])
-        yTrain = LLS.one_hot(allTrainFeats[:, 14])
-        yTest = LLS.one_hot(allTestFeats[:, 14])
+        sklearn.preprocessing.normalize(allTrainFeats)
+        sklearn.preprocessing.normalize(allTestFeats)
+        model = LLS.train(allTrainFeats[:, :7], allTrainFeats[:, 14])
+        #yTrain = LLS.one_hot(allTrainFeats[:, 14])
+        #yTest = LLS.one_hot(allTestFeats[:, 14])
 
-        predLabelsTrain = LLS.predict(model, allTrainFeats[:, :13])
-        predLabelsTest = LLS.predict(model, allTestFeats[:, :13])
+        predLabelsTrain = LLS.predict(model, allTrainFeats[:, :7])
+        predLabelsTest = LLS.predict(model, allTestFeats[:, :7])
 
         print("Least Squares Classifier training")
         print("Train accuracy: {0}".format(metrics.accuracy_score(allTrainFeats[:, 14], predLabelsTrain)))
@@ -469,22 +598,37 @@ def create_classifier(classifierType, train_ratio):
     #SVM
     elif classifierType == CLASSIFIER_TYPES[1]:
         #SVC model
-        model = svm.SVC(gamma='scale')
-        model.fit(allTrainFeats[:, :13], allTrainFeats[:, 14])
-        predLabelsTest = model.predict(allTestFeats[:, :13])
+        sklearn.preprocessing.normalize(allTrainFeats, axis=0)
+        sklearn.preprocessing.normalize(allTestFeats, axis=0)
+        print("hi")
+        model = svm.SVC(kernel='linear', gamma='scale', C=0.3)
+        model.fit(allTrainFeats[:, :5], allTrainFeats[:, 14])
+        print("hello")
+        predLabelsTest = model.predict(allTestFeats[:, :5])
         print("SVM Training")
         print("Test accuracy: {0}".format(metrics.accuracy_score(allTestFeats[:, 14], predLabelsTest)))
 
     #MLP
     elif classifierType == CLASSIFIER_TYPES[2]:
-        #MLP Neural Network model
+        # MLP Neural Network model
+        sklearn.preprocessing.normalize(allTrainFeats, axis=0)
+        sklearn.preprocessing.normalize(allTestFeats, axis=0)
         print("Multi Layer Perceptron Training")
-        model = MLPClassifier(hidden_layer_sizes=(50,), max_iter=10, alpha=1e-4,
-                    solver='sgd', verbose=10, tol=1e-4, random_state=1,
-                    learning_rate_init=.1)
-        model.fit(int(allTrainFeats[:, :13]), (allTrainFeats[allTrainFeats[:, 14]]))
-        print("MLP Test set score: %f" % model.score(allTestFeats[:, :13], allTestFeats[:, 14]))
+        model = MLPClassifier(hidden_layer_sizes=(200,), activation='tanh', max_iter=40, alpha=1e-6,
+                              solver='adam', verbose=10, tol=1e-4, random_state=1,
+                              learning_rate_init=.1, learning_rate='invscaling', shuffle=True)
+        model.fit(allTrainFeats[:, 1:4], allTrainFeats[:, 7])
+        print("MLP Test set score: %f" % model.score(allTestFeats[:, 1:4], allTestFeats[:, 7]))
 
+    elif classifierType == CLASSIFIER_TYPES[3]:
+        from sklearn.neighbors import NearestNeighbors
+        #sklearn.preprocessing.normalize(allTrainFeats, axis=0)
+        #sklearn.preprocessing.normalize(allTestFeats, axis=0)
+        model = NearestNeighbors()
+        model.fit(allTrainFeats[:, :7], allTrainFeats[:, 14])
+        predLabelsTest = model.predict(allTestFeats[:, :7])
+        print("Nearest Centroid Training")
+        print("Test accuracy: {0}".format(metrics.accuracy_score(allTestFeats[:, 14], predLabelsTest)))
 
     else:
         print("ERROR no classifier of that type available")
