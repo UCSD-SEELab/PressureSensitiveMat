@@ -15,11 +15,14 @@ import time
 import seaborn as sns
 import sys
 from sklearn.preprocessing import scale
+
 sys.path.append('../')
+print("pre-import")
 from libs.MeanShift_py import mean_shift as gaussian_mean_shift
 from libs.LeastSquares import ls_classifier as LLS
+import xlsxwriter
 
-
+print("post-import")
 
 # define constants
 THRESHOLD = 0
@@ -41,7 +44,7 @@ WEIGHTED_CLUSTER = True
 
 FILES = ['./data/pressuremat_data_subject4.npy', './data/pressuremat_data_subject5.npy']
 
-#create global variable to store features in
+# create global variable to store features in
 dataFeatures = list()
 
 
@@ -67,7 +70,7 @@ def remove_background(data, frames, means, stdevs, sigma):
     for row in range(NUM_ROWS):
         for col in range(NUM_COLS):
             for frame in range(frames):
-                #if data[frame, row, col] < (means[row, col] + (sigma * stdevs[row, col])):
+                # if data[frame, row, col] < (means[row, col] + (sigma * stdevs[row, col])):
                 #    data[frame, row, col] = 0
                 if data[frame, row, col] < 1400:
                     data[frame, row, col] = 0
@@ -100,44 +103,42 @@ def grab_active_x_y(data):
 def total_pressure(activePoints, pressureValues):
     activeLength = activePoints.shape
     totalPressure = 0
-    for  i in range(activeLength[0]):
-        totalPressure = totalPressure + pressureValues[activePoints[i,0], activePoints[i, 1]]
+    for i in range(activeLength[0]):
+        totalPressure = totalPressure + pressureValues[activePoints[i, 0], activePoints[i, 1]]
     return totalPressure
 
 
-
-
-#Finds the center point for clusters returned in a DBSCAN Cluster
-#It will take the weighted average based on the scale values of pressure
-#db is the fitted dbscan while data is the data that the dbscan fitted
-#data_weight is the weights of the data points
-#DATA IS ACTIVE POINTS IN FRAME, wont be 16x32
-#SATA_WEIGHT will be 16x32, it is the actual frame
+# Finds the center point for clusters returned in a DBSCAN Cluster
+# It will take the weighted average based on the scale values of pressure
+# db is the fitted dbscan while data is the data that the dbscan fitted
+# data_weight is the weights of the data points
+# DATA IS ACTIVE POINTS IN FRAME, wont be 16x32
+# SATA_WEIGHT will be 16x32, it is the actual frame
 def find_DBSCAN_centers(data, data_weight, db):
     core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
     core_samples_mask[db.core_sample_indices_] = True
     labels = db.labels_
     # Number of clusters in labels, ignoring noise if present.
     n_clusters_ = len(set(labels)) - (1 if -1 in labels else 0)
-    #find the unique set of labels
+    # find the unique set of labels
     unique_labels = set(labels)
-    #scale the weights of the data
-    #will result in scaled values of the 16x32 frame
+    # scale the weights of the data
+    # will result in scaled values of the 16x32 frame
     maxVal = (data_weight.max())
-    scaledData = data_weight/maxVal
+    scaledData = data_weight / maxVal
     clusterCenters = np.zeros((n_clusters_, 2))
 
-    #iterate through each of the unique labels
+    # iterate through each of the unique labels
     count = 0
     for k in unique_labels:
-        #ignore noise
+        # ignore noise
         if k == -1:
             continue
 
-        #else calculate the center value for this cluster
+        # else calculate the center value for this cluster
         class_member_mask = (labels == k)
-        #get the data points only associated with the current cluster
-        #definitely not 16x32, its values are coordinates in a frame
+        # get the data points only associated with the current cluster
+        # definitely not 16x32, its values are coordinates in a frame
         clusterData = data[class_member_mask]
         numSamples = clusterData.shape
         averageX = 0
@@ -145,38 +146,36 @@ def find_DBSCAN_centers(data, data_weight, db):
         weightSum = 0
 
         for i in range(numSamples[0]):
-            #multiply scaled pressure value times the location in the frame of the active pressure
+            # multiply scaled pressure value times the location in the frame of the active pressure
             if WEIGHTED_CLUSTER:
-                #compute weighted average
+                # compute weighted average
                 averageX += (scaledData[clusterData[i, 0], clusterData[i, 1]] * (clusterData[i, 1]))
                 averageY += (scaledData[clusterData[i, 0], clusterData[i, 1]] * (clusterData[i, 0]))
                 weightSum += scaledData[clusterData[i, 0], clusterData[i, 1]]
 
-            #This works well for plotting clusters without weights
+            # This works well for plotting clusters without weights
             else:
                 averageX += clusterData[i, 1]
                 averageY += clusterData[i, 0]
                 weightSum += 1
 
-        averageX = averageX/weightSum
-        averageY = averageY/weightSum
-        clusterCenters[count,0] = averageX
-        clusterCenters[count,1] = averageY
+        averageX = averageX / weightSum
+        averageY = averageY / weightSum
+        clusterCenters[count, 0] = averageX
+        clusterCenters[count, 1] = averageY
         count = count + 1
 
-    #print("clusterCenters: " + str(clusterCenters))
-    #print("num clusters: " + str(n_clusters_))
+    # print("clusterCenters: " + str(clusterCenters))
+    # print("num clusters: " + str(n_clusters_))
     return clusterCenters
 
 
-
-
-#create features from MataDataProcessing library
-#data is the actual data we will do this from
-#db is the DBSCAN that fitted the data
-#numActiveFrames is however many clusters = 2 frames we
-#want to use to create our feature set
-#returns: two values - total pressure, distance between cluster centers
+# create features from MataDataProcessing library
+# data is the actual data we will do this from
+# db is the DBSCAN that fitted the data
+# numActiveFrames is however many clusters = 2 frames we
+# want to use to create our feature set
+# returns: two values - total pressure, distance between cluster centers
 def create_features_DBSCAN(activePoints, frame, db, clusterCenters):
     from scipy.spatial import distance
     core_samples_mask = np.zeros_like(db.labels_, dtype=bool)
@@ -187,9 +186,9 @@ def create_features_DBSCAN(activePoints, frame, db, clusterCenters):
     # find the unique set of labels
     unique_labels = set(labels)
     totalPressure = 0
-    covariance_matrix = np.zeros((clusterCenters.shape[0],2,2))
+    covariance_matrix = np.zeros((clusterCenters.shape[0], 2, 2))
     for k in unique_labels:
-        #ignore noise points
+        # ignore noise points
         if k == -1:
             continue
         class_member_mask = (labels == k)
@@ -201,21 +200,23 @@ def create_features_DBSCAN(activePoints, frame, db, clusterCenters):
         clusterDistance = 0
     return [totalPressure, clusterDistance, covariance_matrix]
 
+
 def calculate_covariance_matrix(activePoints):
-    #matrix multiply to find the cluster center (active points only)
-    #1 (1xN) * P' (Nx2)  / N
+    # matrix multiply to find the cluster center (active points only)
+    # 1 (1xN) * P' (Nx2)  / N
     N = activePoints.shape[0]
     ones = np.ones((1, N))
-    average = np.dot(ones, activePoints) # 1xN * Nx2 --> 1x2
-    average = average/N #--> 1x2
+    average = np.dot(ones, activePoints)  # 1xN * Nx2 --> 1x2
+    average = average / N  # --> 1x2
 
-    #calculate covariancce matrix, (P - Pavg')(P - Pavg')' / N
-    covariance = np.dot((activePoints - average).T, (activePoints - average)) #2XN * Nx2 --> 2x2
-    covariance = covariance/N
+    # calculate covariancce matrix, (P - Pavg')(P - Pavg')' / N
+    covariance = np.dot((activePoints - average).T, (activePoints - average))  # 2XN * Nx2 --> 2x2
+    covariance = covariance / N
     return covariance
 
-#GOALS COVARIANCE MATRIX (AND EIGENVALUES), DISTANCE BETWEEN CLUSTERS, TOTAL PRESSURE, RATIO OF FOOT PRESSURE,
-#TODO Eigenvalues, ratio
+
+# GOALS COVARIANCE MATRIX (AND EIGENVALUES), DISTANCE BETWEEN CLUSTERS, TOTAL PRESSURE, RATIO OF FOOT PRESSURE,
+# TODO Eigenvalues, ratio
 
 
 def analyze_data(filenames):
@@ -223,12 +224,12 @@ def analyze_data(filenames):
     TODO Add function description
     """
     dataSet = list()
-    backMeans = np.zeros((len(filenames),NUM_ROWS,NUM_COLS))
-    backStdevs = np.zeros((len(filenames),NUM_ROWS,NUM_COLS))
+    backMeans = np.zeros((len(filenames), NUM_ROWS, NUM_COLS))
+    backStdevs = np.zeros((len(filenames), NUM_ROWS, NUM_COLS))
     for k, file in enumerate(filenames):
         dataSet.append(np.load(file))
         data = dataSet[-1]
-        #data here is 1 frame now, problem
+        # data here is 1 frame now, problem
         calc_data_baseline(data, backMeans, backStdevs)
 
         dataSize = data.shape
@@ -253,12 +254,12 @@ def analyze_data(filenames):
                 n_clusters_ = len(set(labels)) - (1 if -1 in labels else 0)
                 n_noise_ = list(labels).count(-1)
 
-                    #HERE WE PARSE THE DATA FOR FEATURES WE WILL USE IN CLASSIFIERS
+                # HERE WE PARSE THE DATA FOR FEATURES WE WILL USE IN CLASSIFIERS
                 if (n_clusters_ == 2):
                     clusterCenters = find_DBSCAN_centers(activeInFrame, original_data[frame, :, :], db)
                     features = create_features_DBSCAN(activeInFrame, original_data[frame, :, :], db, clusterCenters)
                     covarEigenvalues = np.linalg.eig(features[2])
-                    flat_eig =  [item for sublist in covarEigenvalues for item in sublist]
+                    flat_eig = [item for sublist in covarEigenvalues for item in sublist]
                     # TODO: First element of covarEigenvalues is the eigenvalues, this will tell you approximate foot
                     # dimensions (length, width). The second element is eigenvectors, which explain the direction that
                     # the foot is pointing. Find the max absolute value of the eigenvalues for each cluster, determine
@@ -268,28 +269,24 @@ def analyze_data(filenames):
                     # TODO: For eigenvalues, average to determine approximate foot size. Or if you're worried about
                     # subject being completely on mat or not, take max eigenvalue for each direction or just the overall
                     # max.
+
+                    # find the angle between both feet
                     w, v = np.linalg.eig(features[2])
-                    #print("w: " + str(w))
-                    #print()
-                    #print("v: " + str(v))
-                    #print()
                     foot_angle = angle_between(v[0][0], v[1][0])
-                    #print("flat_eig 2: " + str(len(flat_eig[2][0])))
-                    #flat_eig[2][0][0], flat_eig[2][0][1], flat_eig[2][1][0], flat_eig[2][1][1], flat_eig[3][0][0], flat_eig[3][0][1], flat_eig[3][1][0], flat_eig[3][1][1],
-                    #featureSet.append([features[0], features[1], flat_eig[0][0], flat_eig[0][1], flat_eig[1][0],
+
+                    # TODO be able to switch between these two modes with a bool
+                    # print("flat_eig 2: " + str(len(flat_eig[2][0])))
+                    # flat_eig[2][0][0], flat_eig[2][0][1], flat_eig[2][1][0], flat_eig[2][1][1], flat_eig[3][0][0], flat_eig[3][0][1], flat_eig[3][1][0], flat_eig[3][1][1],
+                    # featureSet.append([features[0], features[1], flat_eig[0][0], flat_eig[0][1], flat_eig[1][0],
                     #                   flat_eig[1][1], flat_eig[2][0][0], flat_eig[2][0][1], flat_eig[2][1][0],
                     #                   flat_eig[2][1][1], flat_eig[3][0][0], flat_eig[3][0][1], flat_eig[3][1][0],
                     #                   flat_eig[3][1][1], k])
+
                     leftMaxEig = max((flat_eig[0][0]), abs(flat_eig[0][0]))
                     rightMaxEig = max((flat_eig[1][0]), abs(flat_eig[1][0]))
                     featureSet.append([features[0], features[1], flat_eig[0][0], flat_eig[0][1], flat_eig[1][0],
                                        flat_eig[1][1], foot_angle, k])
-                    #this is 15 features including the label
-                    #print(k)
-                    #print(featureSet[k])
                     validFrameCount = validFrameCount + 1
-
-
 
                     # print information if printing is enabled
                     if PRINT_DATA_EN:
@@ -303,7 +300,7 @@ def analyze_data(filenames):
                     # PLOT RESULTS
                     if PLOT_EN:
                         import matplotlib.pyplot as plt
-                        plt.subplot(2,2,1)
+                        plt.subplot(2, 2, 1)
 
                         # Black removed and is used for noise instead.
                         unique_labels = set(labels)
@@ -324,22 +321,23 @@ def analyze_data(filenames):
                             plt.plot(xy[:, 1], xy[:, 0], 'o', markerfacecolor=tuple(col),
                                      markeredgecolor='k', markersize=6)
                         for i in range(clusterCenters.shape[0]):
-                            plt.plot(clusterCenters[i][0], clusterCenters[i][1], 'x', markeredgecolor='k', markerSize=15)
+                            plt.plot(clusterCenters[i][0], clusterCenters[i][1], 'x', markeredgecolor='k',
+                                     markerSize=15)
                         plt.xlim(0, 32)
                         plt.ylim(0, 20)
                         plt.title('Estimated number of clusters: %d' % n_clusters_)
 
-                        #plot a heatmap
-                        plt.subplot(2,2,2)
+                        # plot a heatmap
+                        plt.subplot(2, 2, 2)
                         plt.xlim(0, 16)
                         plt.ylim(0, 32)
                         ax = sns.heatmap(original_data[frame, :, :])
                         ax.invert_yaxis()
 
-                        #Plot the Histogram of pressure points
+                        # Plot the Histogram of pressure points
                         pressure_array = original_data[frame, :, :].flatten()
                         num_bins = 60
-                        plt.subplot(2,2,3)
+                        plt.subplot(2, 2, 3)
                         plt.hist(pressure_array, num_bins)
 
                         plt.draw()
@@ -351,11 +349,10 @@ def analyze_data(filenames):
             else:
                 # take the estimated value for the bandwidth for mean shift
 
-                #time.sleep(20)
-                #bandwidth = 10
+                # time.sleep(20)
+                # bandwidth = 10
 
-
-                #use a flat kernel
+                # use a flat kernel
 
                 if not GAUSSIAN_KERNEL:
                     bandwidth = (estimate_bandwidth(activeInFrame, quantile=MEAN_SHIFT_QUANTILE)) / 1
@@ -370,7 +367,7 @@ def analyze_data(filenames):
                     labels_unique = np.unique(labels)
                     n_clusters_ = len(labels_unique)
 
-                #use a gaussian kernel
+                # use a gaussian kernel
                 else:
                     bandwidth = np.zeros(2)
                     bandwidth[0] = (estimate_bandwidth(activeInFrame, quantile=MEAN_SHIFT_QUANTILE)) / 1.4
@@ -385,7 +382,7 @@ def analyze_data(filenames):
                     pressureWeights = scale(pressureWeights)
                     """"""
                     ms = gaussian_mean_shift.MeanShift(kernel='multivariate_gaussian')
-                    mean_shift_result = ms.cluster(activeInFrame,bandwidth,pressureWeights)
+                    mean_shift_result = ms.cluster(activeInFrame, bandwidth, pressureWeights)
                     cluster_centers = mean_shift_result.shifted_points
                     labels = mean_shift_result.cluster_ids
 
@@ -405,7 +402,7 @@ def analyze_data(filenames):
                     import matplotlib.pyplot as plt
 
                     plt.clf()
-                    plt.subplot(2,2,1)
+                    plt.subplot(2, 2, 1)
 
                     from itertools import cycle
 
@@ -414,7 +411,8 @@ def analyze_data(filenames):
                     for k, col in zip(range(n_clusters_), colors):
                         my_members = labels == k
                         cluster_center = cluster_centers[k]
-                        plt.plot(activeInFrame[my_members, 1], activeInFrame[my_members, 0], '.', markerfacecolor=tuple(col),
+                        plt.plot(activeInFrame[my_members, 1], activeInFrame[my_members, 0], '.',
+                                 markerfacecolor=tuple(col),
                                  markeredgecolor='k', markersize=10)
                         plt.plot(cluster_center[1], cluster_center[0], 'o',
                                  markerfacecolor=tuple(col), markeredgecolor='k', markersize=14)
@@ -422,16 +420,16 @@ def analyze_data(filenames):
                     plt.ylim(-5, 20)
                     plt.title('Estimated number of clusters: %d' % n_clusters_)
 
-                    #PLOT THE HEATMAP
+                    # PLOT THE HEATMAP
                     plt.subplot(2, 2, 2)
                     plt.xlim(0, 16)
                     plt.ylim(0, 32)
                     ax = sns.heatmap(original_data[frame, :, :])
                     ax.invert_yaxis()
 
-                    #Histogram Plot
-                    #plt.subplot(2,2,3)
-                    #for x in range(NUM_ROWS):
+                    # Histogram Plot
+                    # plt.subplot(2,2,3)
+                    # for x in range(NUM_ROWS):
                     #    for y in range(NUM_COLS):
 
                     plt.draw()
@@ -441,6 +439,7 @@ def analyze_data(filenames):
 
         dataFeatures.append(featureSet)
         np.save('temp_features.npy', dataFeatures)
+
 
 def angle_between(v1, v2):
     """ Returns the angle in radians between vectors 'v1' and 'v2'::
@@ -453,19 +452,21 @@ def angle_between(v1, v2):
             3.141592653589793
     """
     return np.arccos(np.clip(np.dot(v1, v2), -1.0, 1.0))
-        
-#create a classifier to run on data stored in featureSet which is generated by analyze_data
-def create_classifier(classifierType, train_ratio):
-    #PREP THIS DATA
-    #shuffle the valid features to make them randomly selected
+
+
+# create a classifier to run on data stored in featureSet which is generated by analyze_data
+def create_classifier(classifierType, train_ratio, hidden_layer_sizes=(100, 2), activation='relu', max_iter=5000,
+                      alpha=1e-4,
+                      solver='adam', verbose=0, tol=1e-6,
+                      learning_rate_init=0.001, shuffle=True, exclude=None):
+    # PREP THIS DATA
+    # shuffle the valid features to make them randomly selected
     dataHistogram = list()
 
     npDataFeatures = np.concatenate(dataFeatures, axis=0)
 
-    #create a mask for class 0's
+    # create a mask for class 0's
     class_0_mask = npDataFeatures[:, -1] == 0
-    #print(npDataFeatures[0, :, 0])
-    #print(npDataFeatures[0, :, 0])
 
     """
     bins = np.linspace(0, 20, 50)
@@ -507,47 +508,6 @@ def create_classifier(classifierType, train_ratio):
     plt.hist(npDataFeatures[class_0_mask, 6], 50,  label='0')
     plt.hist(npDataFeatures[~class_0_mask, 6], 50, label='1')
     plt.title('feat 6')
-    """
-    """
-    plt.subplot(7, 2, 8)
-    plt.hist(npDataFeatures[class_0_mask, 7], label='0')
-    plt.hist(npDataFeatures[~class_0_mask, 7], label='1')
-    plt.title('feat 7')
-
-    plt.subplot(7, 2, 9)
-    plt.hist(npDataFeatures[class_0_mask, 8], label='0')
-    plt.hist(npDataFeatures[~class_0_mask, 8], label='1')
-    plt.title('feat 8')
-
-    plt.subplot(7, 2, 10)
-    plt.hist(npDataFeatures[class_0_mask, 9], label='0')
-    plt.hist(npDataFeatures[~class_0_mask, 9], label='1')
-    plt.title('feat 9')
-
-    plt.subplot(7, 2, 11)
-    plt.hist(npDataFeatures[class_0_mask, 10], label='0')
-    plt.hist(npDataFeatures[~class_0_mask, 10], label='1')
-    plt.title('feat 10')
-
-    plt.subplot(7, 2, 12)
-    plt.hist(npDataFeatures[class_0_mask, 11], label='0')
-    plt.hist(npDataFeatures[~class_0_mask, 11], label='1')
-    plt.title('feat 11')
-
-    plt.subplot(7, 2, 13)
-    plt.hist(npDataFeatures[class_0_mask, 12], label='0')
-    plt.hist(npDataFeatures[~class_0_mask, 12], label='1')
-    plt.title('feat 12')
-
-    plt.subplot(7, 2, 14)
-    plt.hist(npDataFeatures[class_0_mask, 13], label='0')
-    plt.hist(npDataFeatures[~class_0_mask, 13], label='1')
-    plt.title('feat 13')
-
-
-    plt.legend(loc='upper right')
-    """
-    """
     plt.show()
     """
 
@@ -555,67 +515,59 @@ def create_classifier(classifierType, train_ratio):
     feature_train_indices = random.sample(range(0, npDataFeatures.shape[0]), int(train_ratio * npDataFeatures.shape[0]))
     feature_train_mask[feature_train_indices] = True
 
-    #for i in range(len(dataFeatures)):
-    #    random.shuffle(dataFeatures[i])
-    #select the first train_ratio in percentage form
-    #numTrainFeats = np.zeros(len(dataFeatures))
-    #trainFeats = list()
-    #testFeats = list()
-    #for i in range(len(dataFeatures)):
-    #    numTrainFeats[i] = int(train_ratio * len(dataFeatures[i]))
-        #select our training features
-    #    npDataFeatures = np.array(dataFeatures[i])
-    #    trainFeats.append(npDataFeatures[:int(numTrainFeats[i]), :])
-    #    testFeats.append(npDataFeatures[int(numTrainFeats[i])+1:, :])
-    #combine all the training features into one
-
-    #TODO should generalize this
-    #allTrainFeats = np.concatenate((np.array(trainFeats[0]), np.array(trainFeats[1])))
+    # Select training and test feats
     allTrainFeats = npDataFeatures[feature_train_mask]
-    #allTestFeats = np.concatenate((np.array(testFeats[0]), np.array(testFeats[1])))
     allTestFeats = npDataFeatures[~feature_train_mask]
-    #LEAST SQUARES
-    if classifierType == CLASSIFIER_TYPES[0]:
-        #Least squares model
-        #sklearn.preprocessing.normalize(allTrainFeats)
-        #sklearn.preprocessing.normalize(allTestFeats)
-        model = LLS.train(allTrainFeats[:, :-1], allTrainFeats[:, -1])
-        #yTrain = LLS.one_hot(allTrainFeats[:, 14])
-        #yTest = LLS.one_hot(allTestFeats[:, 14])
 
+    if exclude != None:
+        allTrainFeats = np.delete(allTrainFeats, exclude, axis=1)
+        allTestFeats = np.delete(allTestFeats, exclude, axis=1)
+
+    # LEAST SQUARES
+    if classifierType == CLASSIFIER_TYPES[0]:
+        # Least squares model
+        model = LLS.train(allTrainFeats[:, :-1], allTrainFeats[:, -1])
         predLabelsTrain = LLS.predict(model, allTrainFeats[:, :-1])
         predLabelsTest = LLS.predict(model, allTestFeats[:, :-1])
 
         print("Least Squares Classifier training")
         print("Train accuracy: {0:0.4f}".format(metrics.accuracy_score(allTrainFeats[:, -1], predLabelsTrain)))
         print("Test accuracy: {0:0.4f}\n".format(metrics.accuracy_score(allTestFeats[:, -1], predLabelsTest)))
+        return metrics.accuracy_score(allTestFeats[:, -1], predLabelsTest)
 
-    #SVM
+    # SVM
     elif classifierType == CLASSIFIER_TYPES[1]:
-        #SVC model
+        # SVC model
         print("SVM Training")
-        normalizer = sklearn.preprocessing.MinMaxScaler().fit(allTrainFeats[:,:-1])
+        normalizer = sklearn.preprocessing.MinMaxScaler().fit(allTrainFeats[:, :-1])
         model = svm.LinearSVC()
         model.fit(normalizer.transform(allTrainFeats[:, :-1]), allTrainFeats[:, -1])
-        print('Train accuracy: {0:0.4f}'.format(model.score(normalizer.transform(allTrainFeats[:, :-1]), allTrainFeats[:, -1])))
-        print('Test accuracy: {0:0.4f}\n'.format(model.score(normalizer.transform(allTestFeats[:, :-1]), allTestFeats[:, -1])))
+        print('Train accuracy: {0:0.4f}'.format(
+            model.score(normalizer.transform(allTrainFeats[:, :-1]), allTrainFeats[:, -1])))
+        print('Test accuracy: {0:0.4f}\n'.format(
+            model.score(normalizer.transform(allTestFeats[:, :-1]), allTestFeats[:, -1])))
+        return model.score(normalizer.transform(allTestFeats[:, :-1]), allTestFeats[:, -1])
 
-    #MLP
+    # MLP
     elif classifierType == CLASSIFIER_TYPES[2]:
         # MLP Neural Network model
         print('Multi Layer Perceptron Training')
-        normalizer = sklearn.preprocessing.MinMaxScaler().fit(allTrainFeats[:,:-1])
-        model = MLPClassifier(hidden_layer_sizes=(100, 2), activation='relu', max_iter=5000, alpha=1e-4,
-                              solver='adam', verbose=0, tol=1e-6,
-                              learning_rate_init=0.001, shuffle=True)
+        normalizer = sklearn.preprocessing.MinMaxScaler().fit(allTrainFeats[:, :-1])
+        model = MLPClassifier(hidden_layer_sizes=hidden_layer_sizes, activation=activation, max_iter=max_iter,
+                              alpha=alpha,
+                              solver=solver, verbose=verbose, tol=tol,
+                              learning_rate_init=learning_rate_init, shuffle=shuffle)
         model.fit(normalizer.transform(allTrainFeats[:, :-1]), allTrainFeats[:, -1])
-        print('Train accuracy: {0:0.4f}'.format(model.score(normalizer.transform(allTrainFeats[:, :-1]), allTrainFeats[:, -1])))
-        print('Test accuracy: {0:0.4f}\n'.format(model.score(normalizer.transform(allTestFeats[:, :-1]), allTestFeats[:, -1])))
+        print('Train accuracy: {0:0.4f}'.format(
+            model.score(normalizer.transform(allTrainFeats[:, :-1]), allTrainFeats[:, -1])))
+        print('Test accuracy: {0:0.4f}\n'.format(
+            model.score(normalizer.transform(allTestFeats[:, :-1]), allTestFeats[:, -1])))
+        return model.score(normalizer.transform(allTestFeats[:, :-1]), allTestFeats[:, -1])
 
     elif classifierType == CLASSIFIER_TYPES[3]:
         from sklearn.neighbors import NearestNeighbors
         allTrainFeats = sklearn.preprocessing.normalize(allTrainFeats, axis=0)
-        #sklearn.preprocessing.normalize(allTestFeats, axis=0)
+        # sklearn.preprocessing.normalize(allTestFeats, axis=0)
         model = NearestNeighbors()
         model.fit(allTrainFeats[:, :7], allTrainFeats[:, 14])
         predLabelsTest = model.predict(allTestFeats[:, :7])
@@ -630,7 +582,407 @@ def create_classifier(classifierType, train_ratio):
 
 if __name__ == '__main__':
     analyze_data(FILES)
-    # dataFeatures = np.load('temp_features.npy')
-    create_classifier(CLASSIFIER_TYPES[0], 0.8)
-    create_classifier(CLASSIFIER_TYPES[1], 0.8)
-    create_classifier(CLASSIFIER_TYPES[2], 0.8)
+    # create_classifier(CLASSIFIER_TYPES[0], 0.9)
+    workbook = xlsxwriter.Workbook('ClassifierStatistics.xlsx')
+    worksheet = workbook.add_worksheet()
+    text_format = workbook.add_format({'text_wrap': True})
+    row = 0
+    col = 0
+    total_test_error = 0
+    worksheet.set_column(0, 15, 40)
+
+    # print to the spreadsheet the current statistics
+    for i in range(3):
+        print("set 1: attempt:" + str(i))
+        total_test_error += create_classifier(CLASSIFIER_TYPES[0], 0.8)
+    total_test_error /= 3
+    worksheet.write(row, col, "Linear Least Squares", text_format)
+    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+    col += 1
+    total_test_error = 0
+
+    # print to the spreadsheet the current statistics
+    for i in range(3):
+        print("set 2: attempt:" + str(i))
+        total_test_error += create_classifier(CLASSIFIER_TYPES[0], 0.8)
+    total_test_error /= 3
+    worksheet.write(row, col, "SVM", text_format)
+    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+    col += 1
+    total_test_error = 0
+
+    # print to the spreadsheet the current statistics
+    for i in range(3):
+        print("set 3: attempt:" + str(i))
+        total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 2), activation='relu',
+                                              max_iter=5000, alpha=1e-4,
+                                              solver='adam', verbose=0, tol=1e-6,
+                                              learning_rate_init=0.001, shuffle=True)
+    total_test_error /= 3
+    worksheet.write(row, col, "hidden_layer_sizes=(100, 2), activation='relu',\
+                                                  max_iter=5000, alpha=1e-4,\
+                                                  solver='adam', verbose=0, tol=1e-6,\
+                                                  learning_rate_init=0.001, shuffle=True", text_format)
+    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+    col += 1
+    total_test_error = 0
+
+    # print to the spreadsheet the current statistics
+    for i in range(3):
+        print("set 4: attempt:" + str(i))
+        total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4), activation='relu',
+                                              max_iter=5000, alpha=1e-4,
+                                              solver='adam', verbose=0, tol=1e-6,
+                                              learning_rate_init=0.001, shuffle=True)
+    total_test_error /= 3
+    worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='relu', max_iter=5000, alpha=1e-4,\
+                                  solver='adam', verbose=0, tol=1e-6,\
+                                  learning_rate_init=0.001, shuffle=True", text_format)
+    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+    col += 1
+    total_test_error = 0
+
+    # print to the spreadsheet the current statistics
+    for i in range(3):
+        print("set 5: attempt:" + str(i))
+        total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4),
+                                              activation='logistic', max_iter=5000, alpha=1e-4,
+                                              solver='adam', verbose=0, tol=1e-6,
+                                              learning_rate_init=0.001, shuffle=True)
+    total_test_error /= 3
+    worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='logistic', max_iter=5000, alpha=1e-4,\
+                              solver='adam', verbose=0, tol=1e-6,\
+                              learning_rate_init=0.001, shuffle=True", text_format)
+    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+    col += 1
+    total_test_error = 0
+
+    # print to the spreadsheet the current statistics
+    for i in range(3):
+        print("set 6: attempt:" + str(i))
+        total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 2),
+                                              activation='logistic',
+                                              max_iter=5000, alpha=1e-4,
+                                              solver='adam', verbose=0, tol=1e-6,
+                                              learning_rate_init=0.001, shuffle=True)
+    total_test_error /= 3
+    worksheet.write(row, col, "hidden_layer_sizes=(100, 2), activation='logistic', max_iter=5000, alpha=1e-4,\
+                              solver='adam', verbose=0, tol=1e-6,\
+                              learning_rate_init=0.001, shuffle=True", text_format)
+    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+    col += 1
+    total_test_error = 0
+
+    # print to the spreadsheet the current statistics
+    for i in range(3):
+        print("set 7: attempt:" + str(i))
+        total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 2),
+                                              activation='logistic',
+                                              max_iter=5000, alpha=1e-4,
+                                              solver='adam', verbose=0, tol=1e-6,
+                                              learning_rate_init=0.001, shuffle=True)
+    total_test_error /= 3
+    worksheet.write(row, col, "hidden_layer_sizes=(100, 2), activation='logistic', max_iter=5000, alpha=1e-4,\
+                              solver='adam', verbose=0, tol=1e-6,\
+                              learning_rate_init=0.001, shuffle=Truee", text_format)
+    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+    col += 1
+    total_test_error = 0
+
+    # print to the spreadsheet the current statistics
+    for i in range(3):
+        print("set 8: attempt:" + str(i))
+        total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 2), activation='tanh',
+                                              max_iter=5000, alpha=1e-4,
+                                              solver='adam', verbose=0, tol=1e-6,
+                                              learning_rate_init=0.001, shuffle=True)
+    total_test_error /= 3
+    worksheet.write(row, col, "hidden_layer_sizes=(100, 2), activation='tanh', max_iter=5000, alpha=1e-4,\
+                              solver='adam', verbose=0, tol=1e-6,\
+                              learning_rate_init=0.001, shuffle=True", text_format)
+    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+    col += 1
+    total_test_error = 0
+
+    # print to the spreadsheet the current statistics
+    for i in range(3):
+        print("set 9: attempt:" + str(i))
+        total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4),
+                                              activation='identity',
+                                              max_iter=5000, alpha=1e-4,
+                                              solver='adam', verbose=0, tol=1e-6,
+                                              learning_rate_init=0.001, shuffle=True)
+    total_test_error /= 3
+    worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='identity', max_iter=5000, alpha=1e-4,\
+                              solver='adam', verbose=0, tol=1e-6,\
+                              learning_rate_init=0.001, shuffle=True", text_format)
+    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+    col += 1
+    total_test_error = 0
+
+    # print to the spreadsheet the current statistics
+    for i in range(3):
+        print("set 10: attempt:" + str(i))
+        total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4), activation='relu',
+                                              max_iter=5000, alpha=1e-4,
+                                              solver='adam', verbose=0, tol=1e-6,
+                                              learning_rate_init=0.001, shuffle=False)
+    total_test_error /= 3
+    worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='relu', max_iter=5000, alpha=1e-4,\
+                              solver='adam', verbose=0, tol=1e-6,\
+                              learning_rate_init=0.001, shuffle=False", text_format)
+    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+    col += 1
+    total_test_error = 0
+
+    # print to the spreadsheet the current statistics
+    for i in range(3):
+        print("set 11: attempt:" + str(i))
+        total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4), activation='relu',
+                                              max_iter=5000, alpha=1e-4,
+                                              solver='sgd', verbose=0, tol=1e-6,
+                                              learning_rate_init=0.001, shuffle=False)
+    total_test_error /= 3
+    worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='relu', max_iter=5000, alpha=1e-4,\
+                              solver='sgd', verbose=0, tol=1e-6,\
+                              learning_rate_init=0.001, shuffle=False", text_format)
+    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+    col += 1
+    total_test_error = 0
+
+    # print to the spreadsheet the current statistics
+    for i in range(3):
+        print("set 12: attempt:" + str(i))
+        total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4), activation='relu',
+                                              max_iter=10000, alpha=1e-4,
+                                              solver='sgd', verbose=0, tol=1e-6,
+                                              learning_rate_init=0.001, shuffle=False)
+    total_test_error /= 3
+    worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='relu', max_iter=10000, alpha=1e-4,\
+                              solver='sgd', verbose=0, tol=1e-6,\
+                              learning_rate_init=0.001, shuffle=False", text_format)
+    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+    col += 1
+    total_test_error = 0
+
+    # print to the spreadsheet the current statistics
+    for i in range(3):
+        print("set 13: attempt:" + str(i))
+        total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4), activation='relu',
+                                              max_iter=15000, alpha=1e-4,
+                                              solver='sgd', verbose=0, tol=1e-6,
+                                              learning_rate_init=0.0001, shuffle=False)
+    total_test_error /= 3
+    worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='relu', max_iter=15000, alpha=1e-4,\
+                              solver='sgd', verbose=0, tol=1e-6,\
+                              learning_rate_init=0.0001, shuffle=False", text_format)
+    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+    col += 1
+    total_test_error = 0
+
+    ####################################################################################################################
+    ############################################## START EXCLUDING #####################################################
+    ####################################################################################################################
+
+    for i in range(7):
+        col = 0
+        row += 3
+        # print to the spreadsheet the current statistics
+        for j in range(3):
+            print("set 1: attempt:" + str(j) + " Excluding: " + str(i))
+            total_test_error += create_classifier(CLASSIFIER_TYPES[0], 0.8, exclude=i)
+        total_test_error /= 3
+        worksheet.write(row, col, "Linear Least Squares", text_format)
+        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+        col += 1
+        total_test_error = 0
+
+        # print to the spreadsheet the current statistics
+        for j in range(3):
+            print("set 2: attempt:" + str(j) + " Excluding: " + str(i))
+            total_test_error += create_classifier(CLASSIFIER_TYPES[0], 0.8, exclude=i)
+        total_test_error /= 3
+        worksheet.write(row, col, "SVM", text_format)
+        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+        col += 1
+        total_test_error = 0
+
+        # print to the spreadsheet the current statistics
+        for j in range(3):
+            print("set 3: attempt:" + str(j) + " Excluding: " + str(i))
+            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 2),
+                                                  activation='relu',
+                                                  max_iter=5000, alpha=1e-4,
+                                                  solver='adam', verbose=0, tol=1e-6,
+                                                  learning_rate_init=0.001, shuffle=True, exclude=i)
+        total_test_error /= 3
+        worksheet.write(row, col, "hidden_layer_sizes=(100, 2), activation='relu',\
+                                                          max_iter=5000, alpha=1e-4,\
+                                                          solver='adam', verbose=0, tol=1e-6,\
+                                                          learning_rate_init=0.001, shuffle=True", text_format)
+        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+        col += 1
+        total_test_error = 0
+
+        # print to the spreadsheet the current statistics
+        for j in range(3):
+            print("set 4: attempt:" + str(j) + " Excluding: " + str(i))
+            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4),
+                                                  activation='relu',
+                                                  max_iter=5000, alpha=1e-4,
+                                                  solver='adam', verbose=0, tol=1e-6,
+                                                  learning_rate_init=0.001, shuffle=True, exclude=i)
+        total_test_error /= 3
+        worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='relu', max_iter=5000, alpha=1e-4,\
+                                          solver='adam', verbose=0, tol=1e-6,\
+                                          learning_rate_init=0.001, shuffle=True", text_format)
+        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+        col += 1
+        total_test_error = 0
+
+        # print to the spreadsheet the current statistics
+        for j in range(3):
+            print("set 5: attempt:" + str(j) + " Excluding: " + str(i))
+            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4),
+                                                  activation='logistic', max_iter=5000, alpha=1e-4,
+                                                  solver='adam', verbose=0, tol=1e-6,
+                                                  learning_rate_init=0.001, shuffle=True, exclude=i)
+        total_test_error /= 3
+        worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='logistic', max_iter=5000, alpha=1e-4,\
+                                      solver='adam', verbose=0, tol=1e-6,\
+                                      learning_rate_init=0.001, shuffle=True", text_format)
+        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+        col += 1
+        total_test_error = 0
+
+        # print to the spreadsheet the current statistics
+        for j in range(3):
+            print("set 6: attempt:" + str(j) + " Excluding: " + str(i))
+            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 2),
+                                                  activation='logistic',
+                                                  max_iter=5000, alpha=1e-4,
+                                                  solver='adam', verbose=0, tol=1e-6,
+                                                  learning_rate_init=0.001, shuffle=True, exclude=i)
+        total_test_error /= 3
+        worksheet.write(row, col, "hidden_layer_sizes=(100, 2), activation='logistic', max_iter=5000, alpha=1e-4,\
+                                      solver='adam', verbose=0, tol=1e-6,\
+                                      learning_rate_init=0.001, shuffle=True", text_format)
+        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+        col += 1
+        total_test_error = 0
+
+        # print to the spreadsheet the current statistics
+        for j in range(3):
+            print("set 7: attempt:" + str(j) + " Excluding: " + str(i))
+            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 2),
+                                                  activation='logistic',
+                                                  max_iter=5000, alpha=1e-4,
+                                                  solver='adam', verbose=0, tol=1e-6,
+                                                  learning_rate_init=0.001, shuffle=True, exclude=i)
+        total_test_error /= 3
+        worksheet.write(row, col, "hidden_layer_sizes=(100, 2), activation='logistic', max_iter=5000, alpha=1e-4,\
+                                      solver='adam', verbose=0, tol=1e-6,\
+                                      learning_rate_init=0.001, shuffle=Truee", text_format)
+        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+        col += 1
+        total_test_error = 0
+
+        # print to the spreadsheet the current statistics
+        for j in range(3):
+            print("set 8: attempt:" + str(j) + " Excluding: " + str(i))
+            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 2),
+                                                  activation='tanh',
+                                                  max_iter=5000, alpha=1e-4,
+                                                  solver='adam', verbose=0, tol=1e-6,
+                                                  learning_rate_init=0.001, shuffle=True, exclude=i)
+        total_test_error /= 3
+        worksheet.write(row, col, "hidden_layer_sizes=(100, 2), activation='tanh', max_iter=5000, alpha=1e-4,\
+                                      solver='adam', verbose=0, tol=1e-6,\
+                                      learning_rate_init=0.001, shuffle=True", text_format)
+        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+        col += 1
+        total_test_error = 0
+
+        # print to the spreadsheet the current statistics
+        for j in range(3):
+            print("set 9: attempt:" + str(j) + " Excluding: " + str(i))
+            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4),
+                                                  activation='identity',
+                                                  max_iter=5000, alpha=1e-4,
+                                                  solver='adam', verbose=0, tol=1e-6,
+                                                  learning_rate_init=0.001, shuffle=True, exclude=i)
+        total_test_error /= 3
+        worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='identity', max_iter=5000, alpha=1e-4,\
+                                      solver='adam', verbose=0, tol=1e-6,\
+                                      learning_rate_init=0.001, shuffle=True", text_format)
+        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+        col += 1
+        total_test_error = 0
+
+        # print to the spreadsheet the current statistics
+        for j in range(3):
+            print("set 10: attempt:" + str(j) + " Excluding: " + str(i))
+            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4),
+                                                  activation='relu',
+                                                  max_iter=5000, alpha=1e-4,
+                                                  solver='adam', verbose=0, tol=1e-6,
+                                                  learning_rate_init=0.001, shuffle=False, exclude=i)
+        total_test_error /= 3
+        worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='relu', max_iter=5000, alpha=1e-4,\
+                                      solver='adam', verbose=0, tol=1e-6,\
+                                      learning_rate_init=0.001, shuffle=False", text_format)
+        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+        col += 1
+        total_test_error = 0
+
+        # print to the spreadsheet the current statistics
+        for j in range(3):
+            print("set 11: attempt:" + str(j) + " Excluding: " + str(i))
+            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4),
+                                                  activation='relu',
+                                                  max_iter=5000, alpha=1e-4,
+                                                  solver='sgd', verbose=0, tol=1e-6,
+                                                  learning_rate_init=0.001, shuffle=False, exclude=i)
+        total_test_error /= 3
+        worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='relu', max_iter=5000, alpha=1e-4,\
+                                      solver='sgd', verbose=0, tol=1e-6,\
+                                      learning_rate_init=0.001, shuffle=False", text_format)
+        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+        col += 1
+        total_test_error = 0
+
+        # print to the spreadsheet the current statistics
+        for j in range(3):
+            print("set 12: attempt:" + str(j) + " Excluding: " + str(i))
+            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4),
+                                                  activation='relu',
+                                                  max_iter=10000, alpha=1e-4,
+                                                  solver='sgd', verbose=0, tol=1e-6,
+                                                  learning_rate_init=0.001, shuffle=False, exclude=i)
+        total_test_error /= 3
+        worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='relu', max_iter=10000, alpha=1e-4,\
+                                      solver='sgd', verbose=0, tol=1e-6,\
+                                      learning_rate_init=0.001, shuffle=False", text_format)
+        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+        col += 1
+        total_test_error = 0
+
+        # print to the spreadsheet the current statistics
+        for j in range(3):
+            print("set 13: attempt:" + str(j) + " Excluding: " + str(i))
+            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4),
+                                                  activation='relu',
+                                                  max_iter=15000, alpha=1e-4,
+                                                  solver='sgd', verbose=0, tol=1e-6,
+                                                  learning_rate_init=0.0001, shuffle=False, exclude=i)
+        total_test_error /= 3
+        worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='relu', max_iter=15000, alpha=1e-4,\
+                                      solver='sgd', verbose=0, tol=1e-6,\
+                                      learning_rate_init=0.0001, shuffle=False", text_format)
+        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
+        col += 1
+        total_test_error = 0
+
+
+    #close the book to save it
+    workbook.close()
