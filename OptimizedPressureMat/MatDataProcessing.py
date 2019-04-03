@@ -15,6 +15,7 @@ import time
 import seaborn as sns
 import sys
 from sklearn.preprocessing import scale
+from sklearn.decomposition import PCA
 
 sys.path.append('../')
 print("pre-import")
@@ -42,7 +43,7 @@ CLUSTERING_ALG = CLUSTERING_ALGORITHMS[0]
 GAUSSIAN_KERNEL = False
 WEIGHTED_CLUSTER = True
 
-FILES = ['./data/pressuremat_data_subject4.npy', './data/pressuremat_data_subject5.npy']
+FILES = ['./data/pressuremat_data_subject4.npy', './data/pressuremat_data_subject5.npy', './data/pressuremat_data_subject6.npy']
 
 # create global variable to store features in
 dataFeatures = list()
@@ -380,7 +381,6 @@ def analyze_data(filenames):
                     for i in range(activeShape[0]):
                         pressureWeights[i] = data[frame, activeInFrame[i, 0], activeInFrame[i, 1]]
                     pressureWeights = scale(pressureWeights)
-                    """"""
                     ms = gaussian_mean_shift.MeanShift(kernel='multivariate_gaussian')
                     mean_shift_result = ms.cluster(activeInFrame, bandwidth, pressureWeights)
                     cluster_centers = mean_shift_result.shifted_points
@@ -458,13 +458,12 @@ def angle_between(v1, v2):
 def create_classifier(classifierType, train_ratio, hidden_layer_sizes=(100, 2), activation='relu', max_iter=5000,
                       alpha=1e-4,
                       solver='adam', verbose=0, tol=1e-6,
-                      learning_rate_init=0.001, shuffle=True, exclude=None):
+                      learning_rate_init=0.001, shuffle=True, exclude=None, n_components=7):
     # PREP THIS DATA
     # shuffle the valid features to make them randomly selected
     dataHistogram = list()
 
     npDataFeatures = np.concatenate(dataFeatures, axis=0)
-
     # create a mask for class 0's
     class_0_mask = npDataFeatures[:, -1] == 0
 
@@ -516,8 +515,10 @@ def create_classifier(classifierType, train_ratio, hidden_layer_sizes=(100, 2), 
     feature_train_mask[feature_train_indices] = True
 
     # Select training and test feats
+
     allTrainFeats = npDataFeatures[feature_train_mask]
     allTestFeats = npDataFeatures[~feature_train_mask]
+
 
     if exclude != None:
         allTrainFeats = np.delete(allTrainFeats, exclude, axis=1)
@@ -552,11 +553,13 @@ def create_classifier(classifierType, train_ratio, hidden_layer_sizes=(100, 2), 
     elif classifierType == CLASSIFIER_TYPES[2]:
         # MLP Neural Network model
         print('Multi Layer Perceptron Training')
+        # TODO adjust with dropout, or switch to Keras or sknn, try to do dropout somewhere
+        # TODO also print out stdev, var, maybe loss, shuffle=True, mess with hidden layer sizes
         normalizer = sklearn.preprocessing.MinMaxScaler().fit(allTrainFeats[:, :-1])
         model = MLPClassifier(hidden_layer_sizes=hidden_layer_sizes, activation=activation, max_iter=max_iter,
                               alpha=alpha,
                               solver=solver, verbose=verbose, tol=tol,
-                              learning_rate_init=learning_rate_init, shuffle=shuffle)
+                              learning_rate_init=learning_rate_init, shuffle=shuffle, )
         model.fit(normalizer.transform(allTrainFeats[:, :-1]), allTrainFeats[:, -1])
         print('Train accuracy: {0:0.4f}'.format(
             model.score(normalizer.transform(allTrainFeats[:, :-1]), allTrainFeats[:, -1])))
@@ -583,406 +586,49 @@ def create_classifier(classifierType, train_ratio, hidden_layer_sizes=(100, 2), 
 if __name__ == '__main__':
     analyze_data(FILES)
     # create_classifier(CLASSIFIER_TYPES[0], 0.9)
-    workbook = xlsxwriter.Workbook('ClassifierStatistics.xlsx')
+    workbook = xlsxwriter.Workbook('ClassifierStatistics2.xlsx')
     worksheet = workbook.add_worksheet()
     text_format = workbook.add_format({'text_wrap': True})
     row = 0
     col = 0
     total_test_error = 0
-    worksheet.set_column(0, 15, 40)
+    worksheet.set_column(0, 30, 20)
+    mlp_dims = [[100, 100, 100], [100, 100], [100, 100, 20], [100, 20, 20], [20, 20, 20], [20, 100, 20],
+                [30, 30, 30, 30],
+                [100, 30, 100, 30], [30, 100, 30, 100], [40, 50, 40, 50], [20, 40, 20, 40, 20],
+                [20, 40, 20, 40, 20, 40],
+                [30, 50, 30, 50, 30, 50], [30, 100, 30, 100, 30], [30, 100, 30, 100, 2], [4], [5, 5]]
+    num_dims = 7
 
-    # print to the spreadsheet the current statistics
-    for i in range(3):
-        print("set 1: attempt:" + str(i))
-        total_test_error += create_classifier(CLASSIFIER_TYPES[0], 0.8)
-    total_test_error /= 3
-    worksheet.write(row, col, "Linear Least Squares", text_format)
-    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-    col += 1
-    total_test_error = 0
+    max_acc = 0
+    best_layer_dim = ""
 
-    # print to the spreadsheet the current statistics
-    for i in range(3):
-        print("set 2: attempt:" + str(i))
-        total_test_error += create_classifier(CLASSIFIER_TYPES[0], 0.8)
-    total_test_error /= 3
-    worksheet.write(row, col, "SVM", text_format)
-    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-    col += 1
-    total_test_error = 0
+    worksheet.write(2, 0, "MLP Dimensions", text_format)
+    worksheet.write(2, 1, "Average Accuracy")
+    count = 0
+    row = 3
 
-    # print to the spreadsheet the current statistics
-    for i in range(3):
-        print("set 3: attempt:" + str(i))
-        total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 2), activation='relu',
-                                              max_iter=5000, alpha=1e-4,
-                                              solver='adam', verbose=0, tol=1e-6,
-                                              learning_rate_init=0.001, shuffle=True)
-    total_test_error /= 3
-    worksheet.write(row, col, "hidden_layer_sizes=(100, 2), activation='relu',\
-                                                  max_iter=5000, alpha=1e-4,\
-                                                  solver='adam', verbose=0, tol=1e-6,\
-                                                  learning_rate_init=0.001, shuffle=True", text_format)
-    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-    col += 1
-    total_test_error = 0
-
-    # print to the spreadsheet the current statistics
-    for i in range(3):
-        print("set 4: attempt:" + str(i))
-        total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4), activation='relu',
-                                              max_iter=5000, alpha=1e-4,
-                                              solver='adam', verbose=0, tol=1e-6,
-                                              learning_rate_init=0.001, shuffle=True)
-    total_test_error /= 3
-    worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='relu', max_iter=5000, alpha=1e-4,\
-                                  solver='adam', verbose=0, tol=1e-6,\
-                                  learning_rate_init=0.001, shuffle=True", text_format)
-    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-    col += 1
-    total_test_error = 0
-
-    # print to the spreadsheet the current statistics
-    for i in range(3):
-        print("set 5: attempt:" + str(i))
-        total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4),
-                                              activation='logistic', max_iter=5000, alpha=1e-4,
-                                              solver='adam', verbose=0, tol=1e-6,
-                                              learning_rate_init=0.001, shuffle=True)
-    total_test_error /= 3
-    worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='logistic', max_iter=5000, alpha=1e-4,\
-                              solver='adam', verbose=0, tol=1e-6,\
-                              learning_rate_init=0.001, shuffle=True", text_format)
-    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-    col += 1
-    total_test_error = 0
-
-    # print to the spreadsheet the current statistics
-    for i in range(3):
-        print("set 6: attempt:" + str(i))
-        total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 2),
-                                              activation='logistic',
-                                              max_iter=5000, alpha=1e-4,
-                                              solver='adam', verbose=0, tol=1e-6,
-                                              learning_rate_init=0.001, shuffle=True)
-    total_test_error /= 3
-    worksheet.write(row, col, "hidden_layer_sizes=(100, 2), activation='logistic', max_iter=5000, alpha=1e-4,\
-                              solver='adam', verbose=0, tol=1e-6,\
-                              learning_rate_init=0.001, shuffle=True", text_format)
-    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-    col += 1
-    total_test_error = 0
-
-    # print to the spreadsheet the current statistics
-    for i in range(3):
-        print("set 7: attempt:" + str(i))
-        total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 2),
-                                              activation='logistic',
-                                              max_iter=5000, alpha=1e-4,
-                                              solver='adam', verbose=0, tol=1e-6,
-                                              learning_rate_init=0.001, shuffle=True)
-    total_test_error /= 3
-    worksheet.write(row, col, "hidden_layer_sizes=(100, 2), activation='logistic', max_iter=5000, alpha=1e-4,\
-                              solver='adam', verbose=0, tol=1e-6,\
-                              learning_rate_init=0.001, shuffle=Truee", text_format)
-    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-    col += 1
-    total_test_error = 0
-
-    # print to the spreadsheet the current statistics
-    for i in range(3):
-        print("set 8: attempt:" + str(i))
-        total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 2), activation='tanh',
-                                              max_iter=5000, alpha=1e-4,
-                                              solver='adam', verbose=0, tol=1e-6,
-                                              learning_rate_init=0.001, shuffle=True)
-    total_test_error /= 3
-    worksheet.write(row, col, "hidden_layer_sizes=(100, 2), activation='tanh', max_iter=5000, alpha=1e-4,\
-                              solver='adam', verbose=0, tol=1e-6,\
-                              learning_rate_init=0.001, shuffle=True", text_format)
-    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-    col += 1
-    total_test_error = 0
-
-    # print to the spreadsheet the current statistics
-    for i in range(3):
-        print("set 9: attempt:" + str(i))
-        total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4),
-                                              activation='identity',
-                                              max_iter=5000, alpha=1e-4,
-                                              solver='adam', verbose=0, tol=1e-6,
-                                              learning_rate_init=0.001, shuffle=True)
-    total_test_error /= 3
-    worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='identity', max_iter=5000, alpha=1e-4,\
-                              solver='adam', verbose=0, tol=1e-6,\
-                              learning_rate_init=0.001, shuffle=True", text_format)
-    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-    col += 1
-    total_test_error = 0
-
-    # print to the spreadsheet the current statistics
-    for i in range(3):
-        print("set 10: attempt:" + str(i))
-        total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4), activation='relu',
-                                              max_iter=5000, alpha=1e-4,
-                                              solver='adam', verbose=0, tol=1e-6,
-                                              learning_rate_init=0.001, shuffle=False)
-    total_test_error /= 3
-    worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='relu', max_iter=5000, alpha=1e-4,\
-                              solver='adam', verbose=0, tol=1e-6,\
-                              learning_rate_init=0.001, shuffle=False", text_format)
-    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-    col += 1
-    total_test_error = 0
-
-    # print to the spreadsheet the current statistics
-    for i in range(3):
-        print("set 11: attempt:" + str(i))
-        total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4), activation='relu',
-                                              max_iter=5000, alpha=1e-4,
-                                              solver='sgd', verbose=0, tol=1e-6,
-                                              learning_rate_init=0.001, shuffle=False)
-    total_test_error /= 3
-    worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='relu', max_iter=5000, alpha=1e-4,\
-                              solver='sgd', verbose=0, tol=1e-6,\
-                              learning_rate_init=0.001, shuffle=False", text_format)
-    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-    col += 1
-    total_test_error = 0
-
-    # print to the spreadsheet the current statistics
-    for i in range(3):
-        print("set 12: attempt:" + str(i))
-        total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4), activation='relu',
-                                              max_iter=10000, alpha=1e-4,
-                                              solver='sgd', verbose=0, tol=1e-6,
-                                              learning_rate_init=0.001, shuffle=False)
-    total_test_error /= 3
-    worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='relu', max_iter=10000, alpha=1e-4,\
-                              solver='sgd', verbose=0, tol=1e-6,\
-                              learning_rate_init=0.001, shuffle=False", text_format)
-    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-    col += 1
-    total_test_error = 0
-
-    # print to the spreadsheet the current statistics
-    for i in range(3):
-        print("set 13: attempt:" + str(i))
-        total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4), activation='relu',
-                                              max_iter=15000, alpha=1e-4,
-                                              solver='sgd', verbose=0, tol=1e-6,
-                                              learning_rate_init=0.0001, shuffle=False)
-    total_test_error /= 3
-    worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='relu', max_iter=15000, alpha=1e-4,\
-                              solver='sgd', verbose=0, tol=1e-6,\
-                              learning_rate_init=0.0001, shuffle=False", text_format)
-    worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-    col += 1
-    total_test_error = 0
-
-    ####################################################################################################################
-    ############################################## START EXCLUDING #####################################################
-    ####################################################################################################################
-
-    for i in range(7):
-        col = 0
-        row += 3
-        # print to the spreadsheet the current statistics
-        for j in range(3):
-            print("set 1: attempt:" + str(j) + " Excluding: " + str(i))
-            total_test_error += create_classifier(CLASSIFIER_TYPES[0], 0.8, exclude=i)
-        total_test_error /= 3
-        worksheet.write(row, col, "Linear Least Squares", text_format)
-        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-        col += 1
-        total_test_error = 0
-
-        # print to the spreadsheet the current statistics
-        for j in range(3):
-            print("set 2: attempt:" + str(j) + " Excluding: " + str(i))
-            total_test_error += create_classifier(CLASSIFIER_TYPES[0], 0.8, exclude=i)
-        total_test_error /= 3
-        worksheet.write(row, col, "SVM", text_format)
-        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-        col += 1
-        total_test_error = 0
-
-        # print to the spreadsheet the current statistics
-        for j in range(3):
-            print("set 3: attempt:" + str(j) + " Excluding: " + str(i))
-            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 2),
+    for mlp in mlp_dims:
+        for i in range(3):
+            print("set " + str(count) + ": attempt:" + str(i))
+            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=mlp,
                                                   activation='relu',
                                                   max_iter=5000, alpha=1e-4,
                                                   solver='adam', verbose=0, tol=1e-6,
-                                                  learning_rate_init=0.001, shuffle=True, exclude=i)
+                                                  learning_rate_init=0.001, shuffle=True)
         total_test_error /= 3
-        worksheet.write(row, col, "hidden_layer_sizes=(100, 2), activation='relu',\
-                                                          max_iter=5000, alpha=1e-4,\
-                                                          solver='adam', verbose=0, tol=1e-6,\
-                                                          learning_rate_init=0.001, shuffle=True", text_format)
-        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-        col += 1
+        worksheet.write(row, col, str(mlp), text_format)
+        worksheet.write(row, col + 1, round(total_test_error, 4))
+        if total_test_error > max_acc:
+            max_acc = total_test_error
+            best_layer_dim = str(mlp)
+        row += 1
         total_test_error = 0
+        count += 1
 
-        # print to the spreadsheet the current statistics
-        for j in range(3):
-            print("set 4: attempt:" + str(j) + " Excluding: " + str(i))
-            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4),
-                                                  activation='relu',
-                                                  max_iter=5000, alpha=1e-4,
-                                                  solver='adam', verbose=0, tol=1e-6,
-                                                  learning_rate_init=0.001, shuffle=True, exclude=i)
-        total_test_error /= 3
-        worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='relu', max_iter=5000, alpha=1e-4,\
-                                          solver='adam', verbose=0, tol=1e-6,\
-                                          learning_rate_init=0.001, shuffle=True", text_format)
-        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-        col += 1
-        total_test_error = 0
+    worksheet.write(0, 0, "Best MLP Dimension " + str(best_layer_dim), text_format)
+    worksheet.write(0, 1, round(max_acc, 4))
 
-        # print to the spreadsheet the current statistics
-        for j in range(3):
-            print("set 5: attempt:" + str(j) + " Excluding: " + str(i))
-            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4),
-                                                  activation='logistic', max_iter=5000, alpha=1e-4,
-                                                  solver='adam', verbose=0, tol=1e-6,
-                                                  learning_rate_init=0.001, shuffle=True, exclude=i)
-        total_test_error /= 3
-        worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='logistic', max_iter=5000, alpha=1e-4,\
-                                      solver='adam', verbose=0, tol=1e-6,\
-                                      learning_rate_init=0.001, shuffle=True", text_format)
-        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-        col += 1
-        total_test_error = 0
-
-        # print to the spreadsheet the current statistics
-        for j in range(3):
-            print("set 6: attempt:" + str(j) + " Excluding: " + str(i))
-            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 2),
-                                                  activation='logistic',
-                                                  max_iter=5000, alpha=1e-4,
-                                                  solver='adam', verbose=0, tol=1e-6,
-                                                  learning_rate_init=0.001, shuffle=True, exclude=i)
-        total_test_error /= 3
-        worksheet.write(row, col, "hidden_layer_sizes=(100, 2), activation='logistic', max_iter=5000, alpha=1e-4,\
-                                      solver='adam', verbose=0, tol=1e-6,\
-                                      learning_rate_init=0.001, shuffle=True", text_format)
-        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-        col += 1
-        total_test_error = 0
-
-        # print to the spreadsheet the current statistics
-        for j in range(3):
-            print("set 7: attempt:" + str(j) + " Excluding: " + str(i))
-            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 2),
-                                                  activation='logistic',
-                                                  max_iter=5000, alpha=1e-4,
-                                                  solver='adam', verbose=0, tol=1e-6,
-                                                  learning_rate_init=0.001, shuffle=True, exclude=i)
-        total_test_error /= 3
-        worksheet.write(row, col, "hidden_layer_sizes=(100, 2), activation='logistic', max_iter=5000, alpha=1e-4,\
-                                      solver='adam', verbose=0, tol=1e-6,\
-                                      learning_rate_init=0.001, shuffle=Truee", text_format)
-        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-        col += 1
-        total_test_error = 0
-
-        # print to the spreadsheet the current statistics
-        for j in range(3):
-            print("set 8: attempt:" + str(j) + " Excluding: " + str(i))
-            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 2),
-                                                  activation='tanh',
-                                                  max_iter=5000, alpha=1e-4,
-                                                  solver='adam', verbose=0, tol=1e-6,
-                                                  learning_rate_init=0.001, shuffle=True, exclude=i)
-        total_test_error /= 3
-        worksheet.write(row, col, "hidden_layer_sizes=(100, 2), activation='tanh', max_iter=5000, alpha=1e-4,\
-                                      solver='adam', verbose=0, tol=1e-6,\
-                                      learning_rate_init=0.001, shuffle=True", text_format)
-        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-        col += 1
-        total_test_error = 0
-
-        # print to the spreadsheet the current statistics
-        for j in range(3):
-            print("set 9: attempt:" + str(j) + " Excluding: " + str(i))
-            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4),
-                                                  activation='identity',
-                                                  max_iter=5000, alpha=1e-4,
-                                                  solver='adam', verbose=0, tol=1e-6,
-                                                  learning_rate_init=0.001, shuffle=True, exclude=i)
-        total_test_error /= 3
-        worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='identity', max_iter=5000, alpha=1e-4,\
-                                      solver='adam', verbose=0, tol=1e-6,\
-                                      learning_rate_init=0.001, shuffle=True", text_format)
-        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-        col += 1
-        total_test_error = 0
-
-        # print to the spreadsheet the current statistics
-        for j in range(3):
-            print("set 10: attempt:" + str(j) + " Excluding: " + str(i))
-            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4),
-                                                  activation='relu',
-                                                  max_iter=5000, alpha=1e-4,
-                                                  solver='adam', verbose=0, tol=1e-6,
-                                                  learning_rate_init=0.001, shuffle=False, exclude=i)
-        total_test_error /= 3
-        worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='relu', max_iter=5000, alpha=1e-4,\
-                                      solver='adam', verbose=0, tol=1e-6,\
-                                      learning_rate_init=0.001, shuffle=False", text_format)
-        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-        col += 1
-        total_test_error = 0
-
-        # print to the spreadsheet the current statistics
-        for j in range(3):
-            print("set 11: attempt:" + str(j) + " Excluding: " + str(i))
-            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4),
-                                                  activation='relu',
-                                                  max_iter=5000, alpha=1e-4,
-                                                  solver='sgd', verbose=0, tol=1e-6,
-                                                  learning_rate_init=0.001, shuffle=False, exclude=i)
-        total_test_error /= 3
-        worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='relu', max_iter=5000, alpha=1e-4,\
-                                      solver='sgd', verbose=0, tol=1e-6,\
-                                      learning_rate_init=0.001, shuffle=False", text_format)
-        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-        col += 1
-        total_test_error = 0
-
-        # print to the spreadsheet the current statistics
-        for j in range(3):
-            print("set 12: attempt:" + str(j) + " Excluding: " + str(i))
-            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4),
-                                                  activation='relu',
-                                                  max_iter=10000, alpha=1e-4,
-                                                  solver='sgd', verbose=0, tol=1e-6,
-                                                  learning_rate_init=0.001, shuffle=False, exclude=i)
-        total_test_error /= 3
-        worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='relu', max_iter=10000, alpha=1e-4,\
-                                      solver='sgd', verbose=0, tol=1e-6,\
-                                      learning_rate_init=0.001, shuffle=False", text_format)
-        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-        col += 1
-        total_test_error = 0
-
-        # print to the spreadsheet the current statistics
-        for j in range(3):
-            print("set 13: attempt:" + str(j) + " Excluding: " + str(i))
-            total_test_error += create_classifier(CLASSIFIER_TYPES[2], 0.8, hidden_layer_sizes=(100, 4),
-                                                  activation='relu',
-                                                  max_iter=15000, alpha=1e-4,
-                                                  solver='sgd', verbose=0, tol=1e-6,
-                                                  learning_rate_init=0.0001, shuffle=False, exclude=i)
-        total_test_error /= 3
-        worksheet.write(row, col, "hidden_layer_sizes=(100, 4), activation='relu', max_iter=15000, alpha=1e-4,\
-                                      solver='sgd', verbose=0, tol=1e-6,\
-                                      learning_rate_init=0.0001, shuffle=False", text_format)
-        worksheet.write(row + 1, col, "averageError: " + str(total_test_error))
-        col += 1
-        total_test_error = 0
-
-
-    #close the book to save it
+    # close the book to save it
     workbook.close()
+    print("max accuracy: " + str(max_acc) + " layer dimensions: " + str(best_layer_dim))
