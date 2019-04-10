@@ -3,6 +3,7 @@ import random
 
 import numpy as np
 import matplotlib.pyplot as plt
+import math
 # import DBSCAN
 import sklearn
 from sklearn.cluster import DBSCAN, MeanShift, estimate_bandwidth
@@ -35,7 +36,7 @@ DBSCAN_ESP = 2  # Radius that our DBSCAN considers for a cluster
 DBSCAN_MIN_SAMPLES = 6  # minimum number of points our DBSCAN needs in a radius to consider something a cluster
 MEAN_SHIFT_QUANTILE = 0.3  # [0,1] the multiplier of pairwise distances, a greater quantile means less clusters
 
-PLOT_EN = False
+PLOT_EN = True
 PRINT_DATA_EN = False
 CLUSTERING_ALGORITHMS = ['DBSCAN', 'MEAN_SHIFT']
 CLASSIFIER_TYPES = ['LEAST_SQUARES', 'SVM', 'MLP', 'NEAREST_CENTROID']
@@ -43,7 +44,8 @@ CLUSTERING_ALG = CLUSTERING_ALGORITHMS[0]
 GAUSSIAN_KERNEL = False
 WEIGHTED_CLUSTER = True
 
-FILES = ['./data/pressuremat_data_subject4.npy', './data/pressuremat_data_subject5.npy', './data/pressuremat_data_subject6.npy']
+FILES = ['./data/pressuremat_data_subject4.npy', './data/pressuremat_data_subject5.npy',
+         './data/pressuremat_data_subject6.npy']
 
 # create global variable to store features in
 dataFeatures = list()
@@ -188,6 +190,8 @@ def create_features_DBSCAN(activePoints, frame, db, clusterCenters):
     unique_labels = set(labels)
     totalPressure = 0
     covariance_matrix = np.zeros((clusterCenters.shape[0], 2, 2))
+
+    # Calculate each clusters covariance matrix
     for k in unique_labels:
         # ignore noise points
         if k == -1:
@@ -195,10 +199,14 @@ def create_features_DBSCAN(activePoints, frame, db, clusterCenters):
         class_member_mask = (labels == k)
         totalPressure = totalPressure + total_pressure(activePoints[class_member_mask], frame)
         covariance_matrix[k] = (calculate_covariance_matrix(activePoints[class_member_mask]))
+
+    # calculate the distance between each cluster
     if clusterCenters.shape[0] == 2:
         clusterDistance = distance.euclidean(clusterCenters[0], clusterCenters[1])
     else:
         clusterDistance = 0
+
+
     return [totalPressure, clusterDistance, covariance_matrix]
 
 
@@ -214,6 +222,29 @@ def calculate_covariance_matrix(activePoints):
     covariance = np.dot((activePoints - average).T, (activePoints - average))  # 2XN * Nx2 --> 2x2
     covariance = covariance / N
     return covariance
+
+
+# get the specific rotation matrix for this application. This rotation matrix is modified to rotate a 3D matrix in
+# 2 dimensions and keep the associated pressure value with each point
+# rotation_angle is the angle between the the vertical and the vertical eigenvector of the foot
+# rotation_matrix is the 3x3 np array of 0's which we will value fill here to meet our specific needs
+def get_rotation_matrix(rotation_angle, rotation_matrix):
+    # fill in the cosine values of the rotation matrix
+    rotation_matrix[0, 0] = math.cos(rotation_angle)
+    rotation_matrix[1, 1] = math.cos(rotation_angle)
+
+    # adjust the matrix if the rotation must go clockwise
+    if math.sin(rotation_angle) < 0:
+        rotation_matrix[0, 1] = -math.sin(rotation_angle)
+        rotation_matrix[1, 0] = math.sin(rotation_angle)
+    else:
+        rotation_matrix[0, 1] = math.sin(rotation_angle)
+        rotation_matrix[1, 0] = -math.sin(rotation_angle)
+
+    # set final value that needs to be set to keep the pressure value associated with each rotated point
+    rotation_matrix[2, 2] = 1
+
+    return rotation_matrix
 
 
 # GOALS COVARIANCE MATRIX (AND EIGENVALUES), DISTANCE BETWEEN CLUSTERS, TOTAL PRESSURE, RATIO OF FOOT PRESSURE,
@@ -259,8 +290,8 @@ def analyze_data(filenames):
                 if (n_clusters_ == 2):
                     clusterCenters = find_DBSCAN_centers(activeInFrame, original_data[frame, :, :], db)
                     features = create_features_DBSCAN(activeInFrame, original_data[frame, :, :], db, clusterCenters)
-                    covarEigenvalues = np.linalg.eig(features[2])
-                    flat_eig = [item for sublist in covarEigenvalues for item in sublist]
+                    covar_eigenvalues = np.linalg.eig(features[2])
+                    flat_eig = [item for sublist in covar_eigenvalues for item in sublist]
                     # TODO: First element of covarEigenvalues is the eigenvalues, this will tell you approximate foot
                     # dimensions (length, width). The second element is eigenvectors, which explain the direction that
                     # the foot is pointing. Find the max absolute value of the eigenvalues for each cluster, determine
@@ -275,16 +306,79 @@ def analyze_data(filenames):
                     w, v = np.linalg.eig(features[2])
                     foot_angle = angle_between(v[0][0], v[1][0])
 
-                    # TODO be able to switch between these two modes with a bool
-                    # print("flat_eig 2: " + str(len(flat_eig[2][0])))
-                    # flat_eig[2][0][0], flat_eig[2][0][1], flat_eig[2][1][0], flat_eig[2][1][1], flat_eig[3][0][0], flat_eig[3][0][1], flat_eig[3][1][0], flat_eig[3][1][1],
-                    # featureSet.append([features[0], features[1], flat_eig[0][0], flat_eig[0][1], flat_eig[1][0],
-                    #                   flat_eig[1][1], flat_eig[2][0][0], flat_eig[2][0][1], flat_eig[2][1][0],
-                    #                   flat_eig[2][1][1], flat_eig[3][0][0], flat_eig[3][0][1], flat_eig[3][1][0],
-                    #                   flat_eig[3][1][1], k])
+                    # TODO: rotate the clusters to align them vertically and then interpolate them to an equal size
+                    vertical_vector = [0, 1]
+                    vertical_vector = np.array(vertical_vector)
+                    left_max_eig = max((flat_eig[0][0]), abs(flat_eig[0][0]))
+                    right_max_eig = max((flat_eig[1][0]), abs(flat_eig[1][0]))
+                    left_angle = angle_between(v[0][0], vertical_vector)
+                    right_angle = angle_between(v[1][0], vertical_vector)
 
-                    leftMaxEig = max((flat_eig[0][0]), abs(flat_eig[0][0]))
-                    rightMaxEig = max((flat_eig[1][0]), abs(flat_eig[1][0]))
+                    # build the rotation matrices
+                    rotation_matrix_left = get_rotation_matrix(left_angle, np.zeros([3, 3]))
+                    rotation_matrix_right = get_rotation_matrix(right_angle, np.zeros([3, 3]))
+
+                    # assemble np array to properly multiply with the rotation matrices
+                    # This will be a (3 x N) matrix where row 0 is xval, row 1 is yval, and row 2 is pressure val and
+                    # each column is its own point
+                    rotated_left = 0
+                    rotated_right = 0
+                    unique_labels = set(labels)
+                    for point_label in unique_labels:
+                        # ignore noise points
+                        if point_label == -1:
+                            continue
+                        class_member_mask = (labels == point_label)
+                        mask_size = sum(class_member_mask)
+                        if point_label == 0:
+                            rotated_left = np.zeros([3, mask_size])
+                            rotated_left[0] = activeInFrame[class_member_mask, 0]
+                            rotated_left[1] = activeInFrame[class_member_mask, 1]
+                            rotated_left[2] = data[frame, activeInFrame[class_member_mask, 0], activeInFrame[class_member_mask, 1]]
+                        else:
+                            rotated_right = np.zeros([3, mask_size])
+                            rotated_right[0] = activeInFrame[class_member_mask, 0]
+                            rotated_right[1] = activeInFrame[class_member_mask, 1]
+                            rotated_right[2] = data[frame, activeInFrame[class_member_mask, 0], activeInFrame[class_member_mask, 1]]
+
+                    # we have our rotation matrix and our matrices that we need to rotate as well
+                    # also normalize their locations
+                    rotated_left = np.dot(rotation_matrix_left, rotated_left)
+                    min_left_x = min(rotated_left[0])
+                    min_left_y = min(rotated_left[1])
+                    rotated_left[0] = rotated_left[0] - min_left_x
+                    rotated_left[1] = rotated_left[1] - min_left_y
+                    #get covariance matrix of the rotated matrix first
+                    left_cov = np.cov(rotated_left[:2])
+                    w_left, v_left = np.linalg.eig(left_cov)
+
+                    rotated_right = np.dot(rotation_matrix_right, rotated_right)
+                    min_right_x = min(rotated_right[0])
+                    min_right_y = min(rotated_right[1])
+                    rotated_right[0] = rotated_right[0] - min_right_x
+                    rotated_right[1] = rotated_right[1] - min_right_y
+                    #get the covariance matrix of the rotated matrix first
+                    right_cov = np.cov(rotated_right[:2])
+                    w_right, v_right = np.linalg.eig(right_cov)
+
+                    #here we will interpolate the images
+                    import scipy.interpolate
+                    import matplotlib.pyplot as plt
+                    left_cart_coord = list(zip(rotated_left[0], rotated_left[1]))
+                    left_x = np.linspace(min(rotated_left[0]), max(rotated_left[0])) #can add n= to increase density
+                    left_y = np.linspace(min(rotated_left[1]), max(rotated_left[1]))
+                    left_x, left_y = np.meshgrid(left_x, left_y)
+                    interp_left = scipy.interpolate.LinearNDInterpolator(left_cart_coord, rotated_left[2], fill_value=0)
+                    left_z = interp_left(left_x, left_y)
+
+                    right_cart_coord = list(zip(rotated_right[0], rotated_right[1]))
+                    right_x = np.linspace(min(rotated_right[0]), max(rotated_right[0]))  # can add n= to increase density
+                    right_y = np.linspace(min(rotated_right[1]), max(rotated_right[1]))
+                    right_x, right_y = np.meshgrid(right_x, right_y)
+                    interp_right = scipy.interpolate.LinearNDInterpolator(right_cart_coord, rotated_right[2], fill_value=0)
+                    right_z = interp_right(right_x, right_y)
+
+                    # Set up our feature set
                     featureSet.append([features[0], features[1], flat_eig[0][0], flat_eig[0][1], flat_eig[1][0],
                                        flat_eig[1][1], foot_angle, k])
                     validFrameCount = validFrameCount + 1
@@ -301,7 +395,7 @@ def analyze_data(filenames):
                     # PLOT RESULTS
                     if PLOT_EN:
                         import matplotlib.pyplot as plt
-                        plt.subplot(2, 2, 1)
+                        plt.subplot(2, 4, 1)
 
                         # Black removed and is used for noise instead.
                         unique_labels = set(labels)
@@ -329,7 +423,7 @@ def analyze_data(filenames):
                         plt.title('Estimated number of clusters: %d' % n_clusters_)
 
                         # plot a heatmap
-                        plt.subplot(2, 2, 2)
+                        plt.subplot(2, 4, 2)
                         plt.xlim(0, 16)
                         plt.ylim(0, 32)
                         ax = sns.heatmap(original_data[frame, :, :])
@@ -338,8 +432,37 @@ def analyze_data(filenames):
                         # Plot the Histogram of pressure points
                         pressure_array = original_data[frame, :, :].flatten()
                         num_bins = 60
-                        plt.subplot(2, 2, 3)
+                        plt.subplot(2, 3, 3)
                         plt.hist(pressure_array, num_bins)
+
+                        # Plot the rotated left foot
+                        plt.subplot(2, 4, 4)
+                        plt.plot(rotated_left[1], rotated_left[0], 'o', markerfacecolor=tuple(col),
+                                 markeredgecolor='k', markersize=14)
+
+                        plt.xlim(-2, max(rotated_left[1]) + 2)
+                        plt.ylim(-2, max(rotated_left[0]) + 2)
+                        plt.title("Eig Vec: " + str(round(v_left[0, 0], 3)) + " " + str(round(v_left[0, 1], 3)) + " " +
+                                  str(round(v_left[1, 0], 3)) + " " + str(round(v_left[1, 1], 3)))
+
+
+                        # Plot the rotated right foot
+                        plt.subplot(2, 4, 5)
+                        plt.plot(rotated_right[1], rotated_right[0], 'o', markerfacecolor=tuple(col),
+                                 markeredgecolor='k', markersize=14)
+                        plt.xlim(-2, max(rotated_right[1]) + 2)
+                        plt.ylim(-2, max(rotated_right[0]) + 2)
+                        plt.title("Eig Vec: " + str(round(v_right[0, 0], 3)) + " " + str(round(v_right[0, 1], 3)) + " "
+                                  + str(round(v_right[1, 0], 3)) + " " + str(round(v_right[1, 1], 3)))
+
+                        plt.subplot(2, 4, 6)
+                        plt.pcolormesh(left_x, left_y, left_z)
+                        plt.colorbar()
+
+                        plt.subplot(2, 4, 7)
+                        plt.pcolormesh(right_x, right_y, right_z)
+                        plt.colorbar()
+
 
                         plt.draw()
                         plt.pause(1e-17)
@@ -516,9 +639,8 @@ def create_classifier(classifierType, train_ratio, hidden_layer_sizes=(100, 2), 
 
     # Select training and test feats
 
-    allTrainFeats = npDataFeatures[feature_train_mask]
-    allTestFeats = npDataFeatures[~feature_train_mask]
-
+    allTrainFeats = npDataFeatures[feature_train_mask, :]
+    allTestFeats = npDataFeatures[~feature_train_mask, :]
 
     if exclude != None:
         allTrainFeats = np.delete(allTrainFeats, exclude, axis=1)
