@@ -437,7 +437,7 @@ def analyze_data(filenames):
 
                         # Plot the rotated left foot
                         plt.subplot(2, 4, 4)
-                        plt.plot(rotated_left[1], rotated_left[0], 'o', markerfacecolor=tuple(col),
+                        plt.plot(rotated_left[0], rotated_left[1], 'o', markerfacecolor=tuple(col),
                                  markeredgecolor='k', markersize=14)
 
                         plt.xlim(-2, max(rotated_left[1]) + 2)
@@ -448,7 +448,7 @@ def analyze_data(filenames):
 
                         # Plot the rotated right foot
                         plt.subplot(2, 4, 5)
-                        plt.plot(rotated_right[1], rotated_right[0], 'o', markerfacecolor=tuple(col),
+                        plt.plot(rotated_right[0], rotated_right[1], 'o', markerfacecolor=tuple(col),
                                  markeredgecolor='k', markersize=14)
                         plt.xlim(-2, max(rotated_right[1]) + 2)
                         plt.ylim(-2, max(rotated_right[0]) + 2)
