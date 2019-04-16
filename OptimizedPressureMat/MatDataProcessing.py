@@ -335,11 +335,41 @@ def analyze_data(filenames):
                             rotated_left[0] = activeInFrame[class_member_mask, 0]
                             rotated_left[1] = activeInFrame[class_member_mask, 1]
                             rotated_left[2] = data[frame, activeInFrame[class_member_mask, 0], activeInFrame[class_member_mask, 1]]
+                            # add in 0's
+                            min_left_x = min(rotated_left[0]) - 2
+                            min_left_y = min(rotated_left[1]) - 2
+                            max_left_x = max(rotated_left[0]) + 2
+                            max_left_y = max(rotated_left[1]) + 2
+                            left_cart_coord = list(zip(rotated_left[0], rotated_left[1]))
+
+                            for x in range(int(max_left_x - min_left_x)):
+                                for y in range(int(max_left_y - min_left_y)):
+                                    if (float(x + min_left_x), float(y + min_left_y)) not in left_cart_coord:
+                                        new_col = np.zeros((3, 1))
+                                        new_col[0, 0] = x + min_left_x
+                                        new_col[1, 0] = y + min_left_y
+                                        rotated_left = np.append(rotated_left, new_col, axis=1)
+
+
                         else:
                             rotated_right = np.zeros([3, mask_size])
                             rotated_right[0] = activeInFrame[class_member_mask, 0]
                             rotated_right[1] = activeInFrame[class_member_mask, 1]
                             rotated_right[2] = data[frame, activeInFrame[class_member_mask, 0], activeInFrame[class_member_mask, 1]]
+                            # add in 0's
+                            min_right_x = min(rotated_right[0]) - 2
+                            min_right_y = min(rotated_right[1]) - 2
+                            max_right_x = max(rotated_right[0]) + 2
+                            max_right_y = max(rotated_right[1]) + 2
+                            right_cart_coord = list(zip(rotated_right[0], rotated_right[1]))
+
+                            for x in range(int(max_right_x - min_right_x)):
+                                for y in range(int(max_right_y - min_right_y)):
+                                    if (float(x + min_right_x), float(y + min_right_y)) not in right_cart_coord:
+                                        new_col = np.zeros((3, 1))
+                                        new_col[0, 0] = x + min_right_x
+                                        new_col[1, 0] = y + min_right_y
+                                        rotated_right = np.append(rotated_right, new_col, axis=1)
 
                     # we have our rotation matrix and our matrices that we need to rotate as well
                     # also normalize their locations
@@ -348,6 +378,7 @@ def analyze_data(filenames):
                     min_left_y = min(rotated_left[1])
                     rotated_left[0] = rotated_left[0] - min_left_x
                     rotated_left[1] = rotated_left[1] - min_left_y
+
                     #get covariance matrix of the rotated matrix first
                     left_cov = np.cov(rotated_left[:2])
                     w_left, v_left = np.linalg.eig(left_cov)
