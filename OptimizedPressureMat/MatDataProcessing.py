@@ -36,13 +36,15 @@ DBSCAN_ESP = 2  # Radius that our DBSCAN considers for a cluster
 DBSCAN_MIN_SAMPLES = 6  # minimum number of points our DBSCAN needs in a radius to consider something a cluster
 MEAN_SHIFT_QUANTILE = 0.3  # [0,1] the multiplier of pairwise distances, a greater quantile means less clusters
 
-PLOT_EN = True
+PLOT_EN = False
 PRINT_DATA_EN = False
 CLUSTERING_ALGORITHMS = ['DBSCAN', 'MEAN_SHIFT']
 CLASSIFIER_TYPES = ['LEAST_SQUARES', 'SVM', 'MLP', 'NEAREST_CENTROID']
 CLUSTERING_ALG = CLUSTERING_ALGORITHMS[0]
 GAUSSIAN_KERNEL = False
 WEIGHTED_CLUSTER = True
+INTERPOLATION_TECHNIQUES = ['SPLINE', 'LINEARND']
+CURRENT_INTERPOLATION_TECHNIQUE = 'LINEARND'
 
 FILES = ['./data/pressuremat_data_subject4.npy', './data/pressuremat_data_subject5.npy',
          './data/pressuremat_data_subject6.npy']
@@ -213,6 +215,7 @@ def create_features_DBSCAN(activePoints, frame, db, clusterCenters):
 def calculate_covariance_matrix(activePoints):
     # matrix multiply to find the cluster center (active points only)
     # 1 (1xN) * P' (Nx2)  / N
+    cov = np.cov
     N = activePoints.shape[0]
     ones = np.ones((1, N))
     average = np.dot(ones, activePoints)  # 1xN * Nx2 --> 1x2
@@ -302,17 +305,21 @@ def analyze_data(filenames):
                     # subject being completely on mat or not, take max eigenvalue for each direction or just the overall
                     # max.
 
+                    #left_cov = np.cov(rotated_left[:2])
+                    #w_left, v_left = np.linalg.eig(left_cov)
+
+
                     # find the angle between both feet
-                    w, v = np.linalg.eig(features[2])
-                    foot_angle = angle_between(v[0][0], v[1][0])
+                    w_left, v_left = np.linalg.eig(features[2][0])
+                    w_right, v_right = np.linalg.eig(features[2][1])
+                    foot_angle = angle_between(v_left[:, 0], v_right[:, 0])
 
                     # TODO: rotate the clusters to align them vertically and then interpolate them to an equal size
-                    vertical_vector = [0, 1]
+                    vertical_vector = [1, 0]
                     vertical_vector = np.array(vertical_vector)
-                    left_max_eig = max((flat_eig[0][0]), abs(flat_eig[0][0]))
-                    right_max_eig = max((flat_eig[1][0]), abs(flat_eig[1][0]))
-                    left_angle = angle_between(v[0][0], vertical_vector)
-                    right_angle = angle_between(v[1][0], vertical_vector)
+                    left_angle = angle_between(v_left[:, 0], vertical_vector)
+                    right_angle = angle_between(v_right[:, 0], vertical_vector) # was v[1][0]
+
 
                     # build the rotation matrices
                     rotation_matrix_left = get_rotation_matrix(left_angle, np.zeros([3, 3]))
@@ -324,14 +331,16 @@ def analyze_data(filenames):
                     rotated_left = 0
                     rotated_right = 0
                     unique_labels = set(labels)
+                    left_mask_size = 0
+                    right_mask_size = 0
                     for point_label in unique_labels:
                         # ignore noise points
                         if point_label == -1:
                             continue
                         class_member_mask = (labels == point_label)
-                        mask_size = sum(class_member_mask)
                         if point_label == 0:
-                            rotated_left = np.zeros([3, mask_size])
+                            left_mask_size = sum(class_member_mask)
+                            rotated_left = np.zeros([3, left_mask_size])
                             rotated_left[0] = activeInFrame[class_member_mask, 0]
                             rotated_left[1] = activeInFrame[class_member_mask, 1]
                             rotated_left[2] = data[frame, activeInFrame[class_member_mask, 0], activeInFrame[class_member_mask, 1]]
@@ -351,8 +360,10 @@ def analyze_data(filenames):
                                         rotated_left = np.append(rotated_left, new_col, axis=1)
 
 
+
                         else:
-                            rotated_right = np.zeros([3, mask_size])
+                            right_mask_size = sum(class_member_mask)
+                            rotated_right = np.zeros([3, right_mask_size])
                             rotated_right[0] = activeInFrame[class_member_mask, 0]
                             rotated_right[1] = activeInFrame[class_member_mask, 1]
                             rotated_right[2] = data[frame, activeInFrame[class_member_mask, 0], activeInFrame[class_member_mask, 1]]
@@ -371,23 +382,49 @@ def analyze_data(filenames):
                                         new_col[1, 0] = y + min_right_y
                                         rotated_right = np.append(rotated_right, new_col, axis=1)
 
+
+
                     # we have our rotation matrix and our matrices that we need to rotate as well
                     # also normalize their locations
+                    # rotate the matrix
                     rotated_left = np.dot(rotation_matrix_left, rotated_left)
                     min_left_x = min(rotated_left[0])
                     min_left_y = min(rotated_left[1])
                     rotated_left[0] = rotated_left[0] - min_left_x
                     rotated_left[1] = rotated_left[1] - min_left_y
+                    max_left_x = max(rotated_left[0])
+                    max_left_y = max(rotated_left[1])
 
-                    #get covariance matrix of the rotated matrix first
+                    # scale the matrix to be max 20 X, max 10 Y
+                    scale_x = 10.0 / (max_left_y)
+                    scale_y = 20.0 / (max_left_x)
+                    scale_matrix = np.array([[scale_y, 0, 0],
+                                             [0, scale_x, 0],
+                                             [0, 0, 1]])
+                    rotated_left = np.dot(scale_matrix, rotated_left)
+
+                    # get covariance matrix of the rotated matrix first
                     left_cov = np.cov(rotated_left[:2])
                     w_left, v_left = np.linalg.eig(left_cov)
 
+                    # rotate the matrix
                     rotated_right = np.dot(rotation_matrix_right, rotated_right)
                     min_right_x = min(rotated_right[0])
                     min_right_y = min(rotated_right[1])
                     rotated_right[0] = rotated_right[0] - min_right_x
                     rotated_right[1] = rotated_right[1] - min_right_y
+                    max_right_x = max(rotated_right[0])
+                    max_right_y = max(rotated_right[1])
+
+
+                    # scale the matrix to be max 20 X, max 10 Y
+                    scale_x = 10.0 / (max_right_y)
+                    scale_y = 20.0 / (max_right_x)
+                    scale_matrix = np.array([[scale_y, 0, 0],
+                                             [0, scale_x, 0],
+                                             [0, 0, 1]])
+                    rotated_right = np.dot(scale_matrix, rotated_right)
+
                     #get the covariance matrix of the rotated matrix first
                     right_cov = np.cov(rotated_right[:2])
                     w_right, v_right = np.linalg.eig(right_cov)
@@ -399,15 +436,25 @@ def analyze_data(filenames):
                     left_x = np.linspace(min(rotated_left[0]), max(rotated_left[0])) #can add n= to increase density
                     left_y = np.linspace(min(rotated_left[1]), max(rotated_left[1]))
                     left_x, left_y = np.meshgrid(left_x, left_y)
-                    interp_left = scipy.interpolate.LinearNDInterpolator(left_cart_coord, rotated_left[2], fill_value=0)
-                    left_z = interp_left(left_x, left_y)
+                    # Interpolate the data
+                    if CURRENT_INTERPOLATION_TECHNIQUE == INTERPOLATION_TECHNIQUES[0]:
+                        interp_left = scipy.interpolate.bisplrep(rotated_left[0], rotated_left[1], rotated_left[2], s =0)
+                        left_z = scipy.interpolate.bisplev(left_x[:, 0], left_y[0, :], interp_left)
+                    elif CURRENT_INTERPOLATION_TECHNIQUE == INTERPOLATION_TECHNIQUES[1]:
+                        interp_left = scipy.interpolate.LinearNDInterpolator(left_cart_coord, rotated_left[2], fill_value=0)
+                        left_z = interp_left(left_x, left_y)
 
                     right_cart_coord = list(zip(rotated_right[0], rotated_right[1]))
                     right_x = np.linspace(min(rotated_right[0]), max(rotated_right[0]))  # can add n= to increase density
                     right_y = np.linspace(min(rotated_right[1]), max(rotated_right[1]))
                     right_x, right_y = np.meshgrid(right_x, right_y)
-                    interp_right = scipy.interpolate.LinearNDInterpolator(right_cart_coord, rotated_right[2], fill_value=0)
-                    right_z = interp_right(right_x, right_y)
+                    # interpolate the data
+                    if CURRENT_INTERPOLATION_TECHNIQUE == INTERPOLATION_TECHNIQUES[0]:
+                        interp_right = scipy.interpolate.bisplrep(rotated_right[0], rotated_right[1], rotated_right[2], s=0)
+                        right_z = scipy.interpolate.bisplev(right_x[:, 0], right_y[0, :], interp_right)
+                    if CURRENT_INTERPOLATION_TECHNIQUE == INTERPOLATION_TECHNIQUES[1]:
+                        interp_right = scipy.interpolate.LinearNDInterpolator(right_cart_coord, rotated_right[2], fill_value=0)
+                        right_z = interp_right(right_x, right_y)
 
                     # Set up our feature set
                     featureSet.append([features[0], features[1], flat_eig[0][0], flat_eig[0][1], flat_eig[1][0],
@@ -429,6 +476,7 @@ def analyze_data(filenames):
                         plt.subplot(2, 4, 1)
 
                         # Black removed and is used for noise instead.
+                        # Plot the original clusters ont the mat
                         unique_labels = set(labels)
                         colors = [plt.cm.Spectral(each)
                                   for each in np.linspace(0, 1, len(unique_labels))]
@@ -453,7 +501,7 @@ def analyze_data(filenames):
                         plt.ylim(0, 20)
                         plt.title('Estimated number of clusters: %d' % n_clusters_)
 
-                        # plot a heatmap
+                        # plot a heatmap of the pressure points
                         plt.subplot(2, 4, 2)
                         plt.xlim(0, 16)
                         plt.ylim(0, 32)
@@ -468,31 +516,36 @@ def analyze_data(filenames):
 
                         # Plot the rotated left foot
                         plt.subplot(2, 4, 4)
-                        plt.plot(rotated_left[0], rotated_left[1], 'o', markerfacecolor=tuple(col),
+                        plt.plot(rotated_left[1, :left_mask_size], rotated_left[0, :left_mask_size], 'o', markerfacecolor=tuple(col),
                                  markeredgecolor='k', markersize=14)
 
-                        plt.xlim(-2, max(rotated_left[1]) + 2)
-                        plt.ylim(-2, max(rotated_left[0]) + 2)
+                        plt.xlim(0, max(rotated_left[1])+ 2)
+                        plt.ylim(0, max(rotated_left[0]) + 2)
                         plt.title("Eig Vec: " + str(round(v_left[0, 0], 3)) + " " + str(round(v_left[0, 1], 3)) + " " +
                                   str(round(v_left[1, 0], 3)) + " " + str(round(v_left[1, 1], 3)))
 
 
                         # Plot the rotated right foot
                         plt.subplot(2, 4, 5)
-                        plt.plot(rotated_right[0], rotated_right[1], 'o', markerfacecolor=tuple(col),
+                        plt.plot(rotated_right[1, :right_mask_size], rotated_right[0, :right_mask_size], 'o', markerfacecolor=tuple(col),
                                  markeredgecolor='k', markersize=14)
-                        plt.xlim(-2, max(rotated_right[1]) + 2)
-                        plt.ylim(-2, max(rotated_right[0]) + 2)
+                        plt.xlim(0, max(rotated_right[1]) + 2)
+                        plt.ylim(0, max(rotated_right[0]) + 2)
                         plt.title("Eig Vec: " + str(round(v_right[0, 0], 3)) + " " + str(round(v_right[0, 1], 3)) + " "
                                   + str(round(v_right[1, 0], 3)) + " " + str(round(v_right[1, 1], 3)))
 
                         plt.subplot(2, 4, 6)
-                        plt.pcolormesh(left_x, left_y, left_z)
+                        plt.pcolormesh(left_y, left_x, left_z)
+                        plt.xlim(0, 10)
+                        plt.ylim(0, 20)
                         plt.colorbar()
 
                         plt.subplot(2, 4, 7)
-                        plt.pcolormesh(right_x, right_y, right_z)
+                        plt.pcolormesh(right_y, right_x, right_z)
                         plt.colorbar()
+                        plt.xlim(0, 10)
+                        plt.ylim(0, 20)
+                        plt.title("Frame: " + str(frame))
 
 
                         plt.draw()
@@ -704,13 +757,32 @@ def create_classifier(classifierType, train_ratio, hidden_layer_sizes=(100, 2), 
 
     # MLP
     elif classifierType == CLASSIFIER_TYPES[2]:
+        # keras version
+        #from keras.models import Sequential
+        #from keras.layers import Dense
+        #from keras.layers import Dropout
+        #model = Sequential()
+        #model.add(Dropout(20, input_dim=(allTrainFeats.shape[1]-1), activation=activation))
+        #model.add(Dropout(100, activation=activation))
+        #model.add(Dropout(20, activation=activation))
+        #model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+        #normalizer = sklearn.preprocessing.MinMaxScaler().fit(allTrainFeats[:, :-1])
+        #model.fit(normalizer.transform(allTrainFeats[:, :-1], allTrainFeats[:, -1]), epochs=3)
+        #normalizer = sklearn.preprocessing.MinMaxScaler().fit(alltTestFeats[:, :-1])
+        #scores = model.evaluate(normalizer.transform(allTestFeats[:, :-1]), allTestFeats[:, -1])
+        #print("\n%s: %.2f%%" % (model.metrics_names[1], scores[1] * 100))
+        #return (model.metrics_names[1], scores[1] * 100)
+
+
+
         # MLP Neural Network model
-        print('Multi Layer Perceptron Training')
+        #print('Multi Layer Perceptron Training')
         # TODO adjust with dropout, or switch to Keras or sknn, try to do dropout somewhere
         # TODO also print out stdev, var, maybe loss, shuffle=True, mess with hidden layer sizes
         normalizer = sklearn.preprocessing.MinMaxScaler().fit(allTrainFeats[:, :-1])
         model = MLPClassifier(hidden_layer_sizes=hidden_layer_sizes, activation=activation, max_iter=max_iter,
-                              alpha=alpha,
+                             alpha=alpha,
                               solver=solver, verbose=verbose, tol=tol,
                               learning_rate_init=learning_rate_init, shuffle=shuffle, )
         model.fit(normalizer.transform(allTrainFeats[:, :-1]), allTrainFeats[:, -1])
